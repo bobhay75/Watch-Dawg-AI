@@ -9,3 +9,9 @@ Verified defects addressed in this branch:
 - No CI workflow ran the regression tests automatically.
 
 The engine now normalizes the Grow Vault contract, validates transaction fields, audits purchase-side vaulting, and runs its regression suite in GitHub Actions.
+
+## MVP expansion
+
+- Added a polished Watch-Dawg dashboard for JSON audits, scenario loading, DAW scoring, anomaly review, balance snapshots, and audit report copying.
+- Extended the deterministic engine with reusable `runWatchDawg`, `explainAudit`, ledger entries, sample scenarios, and richer review metadata.
+- Expanded regression coverage for dashboard-facing ledger runs, anomaly reports, and invalid payload handling.

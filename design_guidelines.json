@@ -1,0 +1,114 @@
+{
+  "theme": "dark",
+  "archetype": "Electric & Neon (Future, Speed, Disruption) adapted to 'Watch-Dawg-AI' (Terminal / AI Auditor)",
+  "typography": {
+    "headings": {
+      "font": "Unbounded",
+      "import": "@import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@300;500;700;900&display=swap');",
+      "rules": "Use font-light to font-black for tension. Tracking-tighter for h1/h2."
+    },
+    "body": {
+      "font": "IBM Plex Sans",
+      "import": "@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');",
+      "rules": "Clean sans for legibility. Leading-relaxed."
+    },
+    "mono": {
+      "font": "JetBrains Mono",
+      "import": "@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');",
+      "rules": "MANDATORY for JSON editor, Transaction Audit logs, Ledger Reconciliation figures, Health score metrics."
+    }
+  },
+  "colors": {
+    "background": {
+      "base": "#09090B",
+      "surface": "#121217",
+      "glass": "bg-black/60 backdrop-blur-xl border-white/10"
+    },
+    "primary": {
+      "brand": "#00E5FF",
+      "hover": "#80F2FF",
+      "description": "Electric Cyan - Represents AI processing and 'watching'."
+    },
+    "accent": {
+      "warning": "#FFEA00",
+      "danger": "#FF3B30",
+      "success": "#00FF66",
+      "description": "High contrast status colors for anomaly review list and health score."
+    },
+    "text": {
+      "primary": "#FFFFFF",
+      "secondary": "#A1A1AA",
+      "muted": "#52525B"
+    }
+  },
+  "visual_enhancers": {
+    "surfaces": "Grid Borders (The Technical Look). Expose the skeleton. Dashboards must have 1px solid borders (border-border/40). No soft muddy shadows. Use sharp 1px borders to separate dashboard widgets.",
+    "effects": "Retro-Futurism terminal glow for the JSON editor and Anomaly list. Subtle drop-shadow-[0_0_8px_rgba(0,229,255,0.3)] on key metrics. Glassmorphism for sticky headers only.",
+    "textures": "Subtle noise overlay on the base background to avoid digital flatness."
+  },
+  "grids_and_layouts": {
+    "spacing": "Generous Spacing Philosophy. Use Tailwind scale generously, but for dashboards (Mode B: High Density), use gap-4 to gap-6. Dashboards must look dense and compact for scanability.",
+    "dashboard_grid": "Base grid: grid-cols-1 md:grid-cols-3 lg:grid-cols-4. The main ledger reconciliation/audit view gets col-span-3, anomaly review gets col-span-1. JSON editor gets full width row at bottom or split screen.",
+    "alignment": "Left-align dense data, tables, and JSON. Only center-align empty states or DAW health score ring."
+  },
+  "motion": {
+    "rules": "Micro-interactions for feedback. Hovering rows in transaction audit highlights them slightly (bg-white/5). Do NOT use universal 'transition: all'. Explicitly transition transform and opacity.",
+    "components": "Tracer beam border effect for the 'DAW Health Score' card to emphasize active monitoring."
+  },
+  "components": {
+    "strategy": "Shadcn UI heavily customized. Cardless, flat rectangular designs. Remove default border-radius (rounded-none or max rounded-sm). Use Shadcn tables for transaction audit, Shadcn charts for ledger reconciliation visual.",
+    "specifics": {
+      "json_editor": "Use Monaco Editor or a styled syntax-highlighted div with JetBrains Mono. Sharp edges, dark background (#000000).",
+      "health_score": "Large radial progress or typography-driven metric. Number must be huge (text-6xl) and use tracking-tighter.",
+      "anomaly_list": "Dense list. Items with anomalies must have a left border accent (border-l-2 border-danger) to quickly draw the eye."
+    }
+  },
+  "accessibility": {
+    "contrast": "Ensure text over dark backgrounds meets APCA standards. Dimmed text must not fall below #A1A1AA against #09090B.",
+    "focus": "focus:ring-2 focus:ring-primary focus:outline-none.",
+    "testing": "All interactive elements MUST include data-testid attribute. E.g., data-testid='audit-transaction-row', data-testid='health-score-metric'."
+  },
+  "media": {
+    "icons": "Use Phosphor Icons (yarn add @phosphor-icons/react). They fit the high-end dashboard look perfectly.",
+    "image_urls": {
+      "background_abstract": {
+        "url": "https://images.unsplash.com/photo-1644088379091-d574269d422f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1NzZ8MHwxfHNlYXJjaHwxfHxkYXRhJTIwc2VjdXJpdHklMjBhYnN0cmFjdCUyMG5ldHdvcmt8ZW58MHx8fHwxNzg3MTk1NzQ0fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Blue background with lines and dots - use as a very low opacity (10%) background behind the hero or login section for the dashboard.",
+        "category": "background"
+      },
+      "data_cubes": {
+        "url": "https://images.unsplash.com/photo-1639322537228-f710d846310a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1NzZ8MHwxfHNlYXJjaHwzfHxkYXRhJTIwc2VjdXJpdHklMjBhYnN0cmFjdCUyMG5ldHdvcmt8ZW58MHx8fHwxNzg3MTk1NzQ0fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Abstract data cubes on black - use for empty states or anomaly detection placeholder graphics.",
+        "category": "empty_state"
+      }
+    }
+  },
+  "3d_libraries": {
+    "recommendation": "React Force Graph 3D or Visx",
+    "usage": "If visualizing the 'Ledger Reconciliation' or 'Allocation Rule Verification' as a network graph, use React Force Graph 3D for a high-tech 'AI Brain' node connection view."
+  },
+  "instructions_to_main_agent": [
+    "Prioritize a strict, high-density dashboard grid.",
+    "Use Phosphor icons. Install using `yarn add @phosphor-icons/react`.",
+    "Do not use generic Inter font for headings. Setup Unbounded for headings, IBM Plex Sans for Body, and JetBrains Mono for data points/tables.",
+    "Avoid Shadcn's default rounded card look. Override with rounded-sm or rounded-none, flat colors (#09090B or #121217) and 1px border-white/10.",
+    "Include data-testid on everything interactive.",
+    "Never use `transition: all`.",
+    "Ensure the JSON editor and transaction audit feel like a true developer/financial tool—dense, scanable, highly technical."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "You tend to converge toward generic, 'on distribution' outputs. In frontend design, this creates what users call the 'AI slop' aesthetic. Avoid this: make creative, distinctive frontends that surprise and delight.",
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy.",
+    "Use glass-morphism effects with backdrop filters (12-24px blur).",
+    "You MUST NOT apply universal transition. Eg: transition: all. Always add transitions for specific interactive elements.",
+    "You MUST NOT center align the app container, ie do not add .App { text-align: center; } in the css file.",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style.",
+    "NEVER: use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 etc for icons.",
+    "Every interaction needs micro-animations - hover states, transitions.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "Prioritize using pre-existing components from src/components/ui when applicable.",
+    "Use sonner for toasts (located in /app/src/components/ui/sonner.tsx)."
+  ]
+}

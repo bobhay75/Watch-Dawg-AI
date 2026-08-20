@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import{auditAllocation,reconcile,dawScore}from'./watchdawg.js';
+import{auditAllocation,reconcile,dawScore,runWatchDawg,explainAudit,sampleScenarios}from'./watchdawg.js';
 
 assert.equal(auditAllocation({gross:500,rate:.1,vault:50,spend:450}).status,'VERIFIED');
 assert.equal(auditAllocation({gross:500,rate:.1,vault:20,spend:480}).status,'REVIEW');
@@ -33,4 +33,22 @@ assert.deepEqual({spendable:badPurchase.spendable,vaulted:badPurchase.vaulted},{
 const unknown=reconcile({spendable:10,vaulted:10},[{type:'mystery',amount:1}]);
 assert.equal(unknown.status,'REVIEW');
 assert.ok(dawScore(unknown)<100);
+
+const ledgerRun=runWatchDawg(sampleScenarios.ledger);
+assert.equal(ledgerRun.mode,'ledger');
+assert.equal(ledgerRun.status,'VERIFIED');
+assert.equal(ledgerRun.summary.entries.length,4);
+assert.equal(ledgerRun.score,100);
+assert.match(ledgerRun.report,/No anomalies detected/);
+
+const anomalyRun=runWatchDawg(sampleScenarios.anomaly);
+assert.equal(anomalyRun.mode,'ledger');
+assert.equal(anomalyRun.status,'REVIEW');
+assert.ok(anomalyRun.summary.reviews.length>=2);
+assert.ok(anomalyRun.score<100);
+assert.match(explainAudit(anomalyRun),/Review queue/);
+
+const invalidJsonShape=runWatchDawg(null);
+assert.equal(invalidJsonShape.mode,'transaction');
+assert.equal(invalidJsonShape.status,'REVIEW');
 console.log('Watch-Dawg tests passed');
