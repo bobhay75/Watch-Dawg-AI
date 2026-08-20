@@ -5,6 +5,9 @@ assert.equal(auditAllocation({gross:500,rate:.1,vault:50,spend:450}).status,'VER
 assert.equal(auditAllocation({gross:500,rate:.1,vault:20,spend:480}).status,'REVIEW');
 assert.equal(auditAllocation({gross:500,rate:1.5,vault:750,spend:-250}).status,'REVIEW');
 assert.equal(auditAllocation({gross:'bad',rate:.1,vault:50}).status,'REVIEW');
+assert.equal(auditAllocation({gross:null,rate:.1,vault:0}).status,'REVIEW');
+assert.equal(auditAllocation({gross:'',rate:.1,vault:0}).status,'REVIEW');
+assert.equal(auditAllocation({gross:false,rate:.1,vault:0}).status,'REVIEW');
 
 const lower=reconcile({spendable:0,vaulted:0},[
   {type:'deposit',gross:1000,rate:.2,vault:200,spend:800},
@@ -14,10 +17,18 @@ assert.deepEqual({spendable:lower.spendable,vaulted:lower.vaulted,status:lower.s
 
 const growContract=reconcile({spendable:0,vaulted:0},[
   {type:'Deposit',gross:500,rate:.1,vault:50,spend:450},
-  {type:'Purchase',gross:40,amount:40,rate:.1,vault:4,spend:0}
+  {type:'Purchase',gross:40,amount:40,rate:.1,vault:4,spend:44}
 ]);
 assert.deepEqual({spendable:growContract.spendable,vaulted:growContract.vaulted,status:growContract.status},{spendable:406,vaulted:54,status:'VERIFIED'});
 assert.equal(dawScore(growContract),100);
+
+const missingSpend=reconcile({spendable:0,vaulted:0},[{type:'Deposit',gross:100,rate:.1,vault:10}]);
+assert.deepEqual({spendable:missingSpend.spendable,vaulted:missingSpend.vaulted},{spendable:90,vaulted:10});
+assert.equal(missingSpend.status,'VERIFIED');
+
+const badPurchase=reconcile({spendable:100,vaulted:0},[{type:'Purchase',gross:40,rate:.1,vault:-4}]);
+assert.equal(badPurchase.status,'REVIEW');
+assert.deepEqual({spendable:badPurchase.spendable,vaulted:badPurchase.vaulted},{spendable:100,vaulted:0});
 
 const unknown=reconcile({spendable:10,vaulted:10},[{type:'mystery',amount:1}]);
 assert.equal(unknown.status,'REVIEW');
