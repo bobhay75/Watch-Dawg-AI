@@ -328,6 +328,38 @@
         margin-top: 16px;
       }
 
+      .ai-output {
+        min-height: 280px;
+        margin-top: 16px;
+        padding: 16px;
+        border: 1px solid rgba(0,229,255,.2);
+        background: #000;
+        color: #e6fbff;
+        white-space: pre-wrap;
+        font: 13px/1.65 'JetBrains Mono', monospace;
+        box-shadow: inset 0 0 28px rgba(0,229,255,.08);
+      }
+
+      .ai-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 12px;
+        color: var(--cyan);
+        font: 700 11px 'JetBrains Mono', monospace;
+        letter-spacing: .1em;
+        text-transform: uppercase;
+      }
+
+      .ai-status::before {
+        content: '';
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--cyan);
+        box-shadow: 0 0 10px rgba(0,229,255,.75);
+      }
+
       .finding {
         border-left: 2px solid var(--red);
         background: rgba(255,59,48,.08);
@@ -508,6 +540,12 @@
           <div class="label">Audit explanation</div>
           <pre id="report" data-testid="audit-report-output">Ready.</pre>
         </section>
+
+        <section class="panel span-2" data-testid="ai-insights-panel">
+          <div class="label">ChatGPT AI Insights</div>
+          <div id="aiStatus" class="ai-status" data-testid="ai-analysis-status">Waiting for audit</div>
+          <div id="aiInsights" class="ai-output" data-testid="ai-insights-output">Run an audit to generate AI explanation, next actions, and a review-ready summary.</div>
+        </section>
       </section>
     </div>
 
@@ -525,7 +563,10 @@
       const anomalyList = $('anomalyList');
       const ledgerBody = $('ledgerBody');
       const toast = $('toast');
+      const aiInsights = $('aiInsights');
+      const aiStatus = $('aiStatus');
       let latestReport = '';
+      let aiAbortController = null;
 
       const money = (value) => `$${Number(value || 0).toFixed(2)}`;
       const pretty = (value) => JSON.stringify(value, null, 2);
@@ -608,11 +649,62 @@
         renderLedger(result);
       }
 
-      function runAudit() {
+      async function generateAiInsights(result) {
+        if (aiAbortController) aiAbortController.abort();
+        aiAbortController = new AbortController();
+        aiStatus.textContent = 'ChatGPT analyzing';
+        aiInsights.textContent = '';
+
+        try {
+          const response = await fetch('/api/ai/audit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              payload: JSON.parse(input.value),
+              deterministic_result: result,
+              report: result.report
+            }),
+            signal: aiAbortController.signal
+          });
+
+          if (!response.ok || !response.body) throw new Error('AI service unavailable');
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const events = buffer.split('\n\n');
+            buffer = events.pop() || '';
+
+            for (const event of events) {
+              const line = event.split('\n').find((item) => item.startsWith('data: '));
+              if (!line) continue;
+              const message = JSON.parse(line.slice(6));
+              if (message.delta) aiInsights.textContent += message.delta;
+              if (message.error) throw new Error(message.error);
+              if (message.done) aiStatus.textContent = 'ChatGPT analysis complete';
+            }
+          }
+
+          if (!aiInsights.textContent.trim()) aiInsights.textContent = 'No AI analysis returned.';
+          if (aiStatus.textContent !== 'ChatGPT analysis complete') aiStatus.textContent = 'ChatGPT analysis complete';
+        } catch (error) {
+          if (error.name === 'AbortError') return;
+          aiStatus.textContent = 'ChatGPT unavailable';
+          aiInsights.textContent = 'AI analysis could not be generated right now. The deterministic Watch-Dawg audit above is still complete and reliable.';
+        }
+      }
+
+      function runAudit(options = { withAi: true }) {
         try {
           const payload = JSON.parse(input.value);
           const result = runWatchDawg(payload);
           renderResult(result);
+          if (options.withAi) generateAiInsights(result);
           showToast(result.status === 'VERIFIED' ? 'AUDIT VERIFIED' : 'REVIEW REQUIRED');
         } catch (error) {
           const result = {
@@ -623,6 +715,7 @@
             report: `Invalid JSON: ${error.message}`
           };
           renderResult(result);
+          if (options.withAi) generateAiInsights(result);
           showToast('INVALID JSON');
         }
       }
@@ -641,7 +734,9 @@
       });
 
       input.value = pretty(sampleScenarios.ledger);
-      runAudit();
+      runAudit({ withAi: false });
+      aiStatus.textContent = 'Ready for next audit';
+      aiInsights.textContent = 'Press Run Watch-Dawg or load a scenario. ChatGPT will automatically generate insights after that audit completes.';
     </script>
   </body>
 </html>
