@@ -7,3 +7,9 @@ __pycache__/
 .mypy_cache/
 test_reports/*.jpeg
 test_reports/pytest/
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
