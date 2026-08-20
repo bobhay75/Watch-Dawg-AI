@@ -2,7 +2,7 @@
 
 Watch-Dawg AI is the audit and intelligence layer for transaction systems. It verifies allocation rules, reconciles balances, flags anomalies, and explains money movement.
 
-The initial build is a deterministic audit engine and browser demo designed to integrate with Grow Vault.
+The current MVP combines a deterministic audit engine with an optional AI explanation layer and is designed to integrate with Grow Vault.
 
 ## MVP features
 
@@ -10,6 +10,7 @@ The initial build is a deterministic audit engine and browser demo designed to i
 - Ledger reconciliation for deposits, purchases, and vault withdrawals.
 - DAW health score, anomaly review queue, audit trail table, and plain-English report.
 - Automatic ChatGPT AI insights after each user-run audit, including explanations, next actions, and a review-ready summary.
+- MongoDB persistence for AI audit messages.
 - Built-in verified, ledger, and anomaly scenarios for fast testing.
 
 ## Run locally
@@ -31,10 +32,24 @@ Required backend environment variables:
 
 Required frontend environment variables:
 
+- `HOST`
+- `PORT`
 - `REACT_APP_BACKEND_URL`
+
+Never commit these values or any `.env` file.
+
+## Deployment
+
+The full Watch-Dawg AI application requires a runtime that can run both the Node frontend proxy and FastAPI backend, plus MongoDB and the required environment variables. The Emergent-hosted application is the intended full-stack deployment path for this MVP.
+
+GitHub Pages publishes only the deterministic browser demo (`index.html` + `watchdawg.js`). The deterministic audit still works there, but `/api/ai/audit` is not hosted by GitHub Pages, so the UI will fall back to its built-in “ChatGPT unavailable” message when AI analysis is requested.
 
 ## Test
 
 ```bash
-node test.mjs
+npm test
+node --check frontend/server.mjs
+python -m compileall -q backend
 ```
+
+Emergent's integration test pass also exercises the live `/api/ai/audit` SSE stream and MongoDB persistence in the configured application environment.
