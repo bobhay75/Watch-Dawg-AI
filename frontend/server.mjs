@@ -13,7 +13,11 @@ function loadEnv(path) {
       const [key, ...rest] = trimmed.split('=');
       if (!process.env[key]) process.env[key] = rest.join('=');
     }
-  } catch {}
+  } catch (error) {
+    if (error && error.code === 'ENOENT') return false;
+    throw error;
+  }
+  return true;
 }
 
 loadEnv('/app/frontend/.env');
@@ -36,10 +40,14 @@ const types = new Map([
 
 function proxyApi(req, res) {
   const target = new URL(req.url, backend);
-  const proxy = http.request(target, { method: req.method, headers: req.headers }, (apiRes) => {
-    res.writeHead(apiRes.statusCode || 502, apiRes.headers);
-    apiRes.pipe(res);
-  });
+  const proxy = http.request(
+    target,
+    { method: req.method, headers: req.headers },
+    (apiRes) => {
+      res.writeHead(apiRes.statusCode || 502, apiRes.headers);
+      apiRes.pipe(res);
+    },
+  );
   proxy.on('error', () => {
     res.writeHead(502, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ detail: 'API service unavailable' }));
@@ -54,26 +62,41 @@ function safeFilePath(urlPath) {
   return normalize(join(root, mapped));
 }
 
+function sendText(res, statusCode, message) {
+  res.writeHead(statusCode, { 'content-type': 'text/plain' });
+  res.end(message);
+}
+
+function isMissingFileError(error) {
+  return error && (error.code === 'ENOENT' || error.code === 'ENOTDIR');
+}
+
 const server = http.createServer(async (req, res) => {
   if (req.url?.startsWith('/api/')) return proxyApi(req, res);
 
   const file = safeFilePath(req.url || '/');
   if (!file) {
-    res.writeHead(404, { 'content-type': 'text/plain' });
-    res.end('Not found');
+    sendText(res, 404, 'Not found');
     return;
   }
 
   try {
     await stat(file);
-    res.writeHead(200, { 'content-type': types.get(extname(file)) || 'application/octet-stream' });
+    res.writeHead(200, {
+      'content-type': types.get(extname(file)) || 'application/octet-stream',
+    });
     createReadStream(file).pipe(res);
-  } catch {
-    res.writeHead(404, { 'content-type': 'text/plain' });
-    res.end('Not found');
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      sendText(res, 404, 'Not found');
+      return;
+    }
+    sendText(res, 500, 'Static asset error');
   }
 });
 
-server.listen(port, host, () => {
-  console.log(`Watch-Dawg frontend listening on ${host}:${port}`);
+server.on('error', (error) => {
+  throw error;
 });
+
+server.listen(port, host);

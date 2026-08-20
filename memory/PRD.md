@@ -18,8 +18,11 @@ User direction: import/run the existing app, fix anything preventing it from wor
 - Expanded deterministic engine with `runWatchDawg`, `explainAudit`, richer ledger entries, sample scenarios, strict invalid payload handling, and preserved Grow Vault transaction compatibility.
 - Integrated ChatGPT GPT 5.4 Mini using the Emergent universal LLM key for automatic explanations, next actions, and polished audit summaries after each user-run audit.
 - Stored AI request/response messages in MongoDB under `ai_audit_messages`.
+- Refactored the AI audit backend into typed helpers for validation, prompt construction, SSE streaming, persistence, and response formatting while preserving the API/SSE contract.
+- Refactored backend AI tests into focused low-complexity cases covering request behavior, stream events, Mongo persistence, and stored field values.
+- Fixed frontend server quality issues by removing empty catch handling and production console output without changing UI behavior.
 - Added regression tests for verified transactions, mismatches, Grow Vault contracts, ledger runs, anomaly runs, invalid payloads, and score/report behavior.
-- Verified with Node tests, backend health/API checks, and browser automation at `http://localhost:3000`.
+- Verified with Node tests, backend health/API checks, pytest, flake8, mypy, JS syntax checks, and browser automation at `http://localhost:3000`.
 
 ## Prioritized backlog
 ### P0

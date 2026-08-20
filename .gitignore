@@ -4,5 +4,6 @@ frontend/.env
 node_modules/
 __pycache__/
 .pytest_cache/
+.mypy_cache/
 test_reports/*.jpeg
 test_reports/pytest/
