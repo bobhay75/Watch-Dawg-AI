@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${GOOGLE_CLOUD_PROJECT:?Set GOOGLE_CLOUD_PROJECT to the contest project ID}"
+
+KEY9_REGION="${GOOGLE_CLOUD_LOCATION:-us-central1}"
+KEY9_SERVICE="${KEY9_CLOUD_RUN_SERVICE:-watch-dawg-key9-agent}"
+KEY9_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KEY9_AGENT_DIR="${KEY9_SCRIPT_DIR}/../agent-service"
+
+if [[ ! "${GOOGLE_CLOUD_PROJECT}" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]]; then
+  echo "GOOGLE_CLOUD_PROJECT is not a valid project ID" >&2
+  exit 2
+fi
+
+gcloud services enable \
+  run.googleapis.com \
+  cloudbuild.googleapis.com \
+  artifactregistry.googleapis.com \
+  aiplatform.googleapis.com \
+  secretmanager.googleapis.com \
+  --project "${GOOGLE_CLOUD_PROJECT}"
+
+gcloud run deploy "${KEY9_SERVICE}" \
+  --source "${KEY9_AGENT_DIR}" \
+  --project "${GOOGLE_CLOUD_PROJECT}" \
+  --region "${KEY9_REGION}" \
+  --allow-unauthenticated \
+  --min-instances 0 \
+  --max-instances 2 \
+  --concurrency 20 \
+  --cpu 1 \
+  --memory 512Mi \
+  --timeout 120 \
+  --set-env-vars "GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT},GOOGLE_CLOUD_LOCATION=${KEY9_REGION},GOOGLE_GENAI_USE_VERTEXAI=True,KEY9_MODEL=gemini-3.5-flash,KEY9_SANDBOX=true"
+
+gcloud run services describe "${KEY9_SERVICE}" \
+  --project "${GOOGLE_CLOUD_PROJECT}" \
+  --region "${KEY9_REGION}" \
+  --format "value(status.url)"
