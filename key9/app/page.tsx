@@ -23,7 +23,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type RunState = "idle" | "running" | "approval" | "complete" | "stopped";
@@ -91,8 +90,8 @@ const VAULT_ITEMS = [
   {
     alias: "drive.receipts",
     target: "Google Drive",
-    scope: "receipts-folder:read",
-    lease: "15 minutes",
+    scope: "receipts:read",
+    lease: "5 minutes",
     status: "Ready",
   },
   {
@@ -128,10 +127,9 @@ export default function Home() {
   );
   const [runState, setRunState] = useState<RunState>("idle");
   const [cursor, setCursor] = useState(-1);
-  const [requireApproval, setRequireApproval] = useState(true);
-  const [sandbox, setSandbox] = useState(true);
   const [agentMode, setAgentMode] = useState<AgentMode>("unverified");
   const [agentSummary, setAgentSummary] = useState("");
+  const [approving, setApproving] = useState(false);
   const runToken = useRef(0);
 
   const completed = useMemo(() => {
@@ -171,15 +169,7 @@ export default function Home() {
 
     await agentRun;
 
-    if (requireApproval) {
-      setRunState("approval");
-      return;
-    }
-
-    await new Promise((resolve) => window.setTimeout(resolve, 620));
-    if (runToken.current !== token) return;
-    setRunState("complete");
-    setCursor(STEPS.length);
+    setRunState("approval");
   }
 
   function stopMission() {
@@ -187,9 +177,25 @@ export default function Home() {
     setRunState("stopped");
   }
 
-  function approveMission() {
-    setRunState("complete");
-    setCursor(STEPS.length);
+  async function approveMission() {
+    setApproving(true);
+    try {
+      const response = await fetch("/api/agent", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "approve", goal, job_id: "WD-1042" }),
+      });
+      const data = (await response.json()) as { mode?: AgentMode; summary?: string; message?: string };
+      if (!response.ok) throw new Error(data.message ?? "Approval request failed");
+      setAgentMode(data.mode ?? "sandbox");
+      setAgentSummary(data.summary ?? "");
+      setRunState("complete");
+      setCursor(STEPS.length);
+    } catch (error: unknown) {
+      setAgentSummary(error instanceof Error ? error.message : "Approval failed safely; no write occurred.");
+    } finally {
+      setApproving(false);
+    }
   }
 
   function resetMission() {
@@ -287,19 +293,13 @@ export default function Home() {
                 />
 
                 <div className="goal-controls">
-                  <label className="switch-label">
-                    <Switch checked={requireApproval} onCheckedChange={setRequireApproval} disabled={running} />
-                    Require owner approval
-                  </label>
-                  <label className="switch-label">
-                    <Switch checked={sandbox} onCheckedChange={setSandbox} disabled={running} />
-                    Sandbox connectors
-                  </label>
+                  <span className="switch-label"><Fingerprint /> Human approval required</span>
+                  <span className="switch-label"><ShieldCheck /> Contest sandbox connectors</span>
 
                   <div className="action-buttons">
                     {runState === "approval" ? (
-                      <Button className="bite-button" onClick={approveMission}>
-                        <Fingerprint /> Approve final write
+                      <Button className="bite-button" onClick={approveMission} disabled={approving}>
+                        <Fingerprint /> {approving ? "Approving safely" : "Approve sandbox export"}
                       </Button>
                     ) : runState === "complete" || runState === "stopped" ? (
                       <Button className="bite-button" onClick={resetMission}>Reset mission</Button>
@@ -356,7 +356,7 @@ export default function Home() {
                     <p>3 receipts matched · 18 time entries verified · 1 discrepancy flagged · 0 secrets exposed</p>
                     {agentSummary && <p className="agent-summary">{agentSummary}</p>}
                   </div>
-                  <Badge className="proof-badge"><ShieldCheck /> Signed proof</Badge>
+                  <Badge className="proof-badge"><ShieldCheck /> Audit proof</Badge>
                 </div>
               )}
             </TabsContent>
@@ -384,8 +384,8 @@ export default function Home() {
 
             <TabsContent value="audit" className="tab-content">
               <div className="section-intro">
-                <div><p className="eyebrow"><FileCheck2 /> TAMPER-EVIDENT PROOF</p><h2>Every bite leaves a receipt.</h2></div>
-                <Badge variant="outline"><Clock3 /> Live trail</Badge>
+                <div><p className="eyebrow"><FileCheck2 /> REDACTED AUDIT PROOF</p><h2>Every bite leaves a receipt.</h2></div>
+                <Badge variant="outline"><Clock3 /> Seeded proof</Badge>
               </div>
               <div className="audit-table-wrap">
                 <table className="audit-table">
