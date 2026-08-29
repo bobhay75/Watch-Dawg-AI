@@ -117,6 +117,7 @@ docs/
   DEVPOST_SUBMISSION.md       Submission-ready project copy
   SECURITY_MODEL.md           Assets, threats, controls, limitations
 scripts/
+  bootstrap-contest-cloud.sh One-command contest Cloud setup
   deploy-cloud-run.sh         Reproducible Google Cloud deployment
   smoke-cloud-run.sh          Health and ADK discovery checks
 ```
@@ -175,7 +176,9 @@ Cloud Run service identity, so no Gemini API key is committed to the project.
 
 ```bash
 export GOOGLE_CLOUD_PROJECT="your-project-id"
-export GOOGLE_CLOUD_LOCATION="us-central1"
+export GOOGLE_CLOUD_RUN_REGION="us-central1"
+export GOOGLE_CLOUD_LOCATION="global"
+export KEY9_GEMINI_MODEL="gemini-3.5-flash"
 export KEY9_BRIDGE_SECRET="key9-bridge-token"
 ./scripts/deploy-cloud-run.sh
 ```
@@ -186,6 +189,20 @@ Run service account access to that one secret. After deployment, set the
 server-only `KEY9_AGENT_URL` and `KEY9_AGENT_TOKEN` values for the web console.
 The token value must match the Secret Manager value; neither setting may use a
 `NEXT_PUBLIC_*` name.
+
+For the contest deployment, Google Cloud Shell can perform the complete API,
+IAM, secret, and Cloud Run setup in one command sequence:
+
+```bash
+git clone --branch key9-contest https://github.com/bobhay75/Watch-Dawg-AI.git
+cd Watch-Dawg-AI/key9
+./scripts/bootstrap-contest-cloud.sh
+```
+
+Cloud Run stays in `us-central1`, while Gemini 3.5 Flash uses Vertex AI's
+`global` location. The bootstrap writes the Site bridge URL and private token
+to `key9-sites-env.txt`; add those two values directly to the Site production
+environment and never commit or share that file.
 
 For production secrets, configure a server-only alias map whose values are
 exact Secret Manager version resource names:
