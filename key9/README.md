@@ -33,9 +33,10 @@ KEY-9 separates **reasoning** from **identity**:
 2. Gemini plans the work and chooses allowlisted tools.
 3. The policy engine validates the credential alias, exact target, requested
    scopes, time-to-live, and approval state.
-4. The broker retrieves the secret only at the connector boundary.
-5. The connector performs the action and returns a redacted result.
-6. The lease is revoked and an audit receipt is recorded.
+4. A server-only approval boundary—not the model—authorizes consequential writes.
+5. The broker retrieves the secret only at the connector boundary.
+6. The connector performs the action and returns a redacted result.
+7. The lease is revoked and an audit receipt is recorded.
 
 The model sees the outcome. It never sees the secret.
 
@@ -88,7 +89,7 @@ by the model.
   requests are always denied, even if a broader policy is added accidentally.
 - **Short leases:** every credential use receives a capped expiry.
 - **Single use:** a successful broker invocation revokes its lease immediately.
-- **Owner approval:** accounting and other consequential writes remain held.
+- **Owner approval:** accounting writes remain held until the private server bridge receives a human approval action; the model-facing tool has no approval parameter.
 - **Fail closed:** unknown alias, target, scope, lease, or state means no action.
 - **Redacted output:** known secrets and common credential shapes are removed
   before results can reach the model or logs.
@@ -148,6 +149,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 PYTHONPATH=. python -m unittest discover -s tests -v
+export KEY9_BRIDGE_TOKEN="replace-with-a-long-random-server-only-value"
 uvicorn main:app --host 127.0.0.1 --port 8080
 ```
 
@@ -155,7 +157,8 @@ Verify the local service:
 
 ```bash
 curl http://127.0.0.1:8080/healthz
-curl http://127.0.0.1:8080/list-apps
+curl -H "x-key9-bridge-token: $KEY9_BRIDGE_TOKEN" \
+  http://127.0.0.1:8080/list-apps
 ```
 
 Expected app list:
@@ -173,12 +176,16 @@ Cloud Run service identity, so no Gemini API key is committed to the project.
 ```bash
 export GOOGLE_CLOUD_PROJECT="your-project-id"
 export GOOGLE_CLOUD_LOCATION="us-central1"
+export KEY9_BRIDGE_SECRET="key9-bridge-token"
 ./scripts/deploy-cloud-run.sh
 ```
 
 The script enables the required APIs and deploys `agent-service/` to Cloud Run.
-After deployment, set the server-only `KEY9_AGENT_URL` value for the web console
-to the returned `run.app` URL.
+Before running it, create the named Secret Manager secret and grant the Cloud
+Run service account access to that one secret. After deployment, set the
+server-only `KEY9_AGENT_URL` and `KEY9_AGENT_TOKEN` values for the web console.
+The token value must match the Secret Manager value; neither setting may use a
+`NEXT_PUBLIC_*` name.
 
 For production secrets, configure a server-only alias map whose values are
 exact Secret Manager version resource names:
@@ -200,14 +207,17 @@ The ADK API server exposes its standard session and run endpoints:
 
 ```bash
 export KEY9_AGENT_URL="https://SERVICE-URL.run.app"
+export KEY9_AGENT_TOKEN="the-private-bridge-token"
 
 curl -X POST \
   "$KEY9_AGENT_URL/apps/key9_agent/users/demo/sessions/mission-1" \
   -H "content-type: application/json" \
+  -H "x-key9-bridge-token: $KEY9_AGENT_TOKEN" \
   -d '{"sandbox": true}'
 
 curl -X POST "$KEY9_AGENT_URL/run_sse" \
   -H "content-type: application/json" \
+  -H "x-key9-bridge-token: $KEY9_AGENT_TOKEN" \
   -d '{
     "app_name": "key9_agent",
     "user_id": "demo",
@@ -226,7 +236,7 @@ curl -X POST "$KEY9_AGENT_URL/run_sse" \
 
 - Web lint: passing
 - Web production build: passing
-- Policy/broker/workflow regression tests: **13/13 passing**
+- Policy/broker/workflow regression tests: **14/14 passing**
 - ADK server import: passing with `google-adk 2.8.0`
 - ADK discovery: returns only `key9_agent`
 - `/healthz`: passing
