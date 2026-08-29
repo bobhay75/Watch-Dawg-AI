@@ -38,11 +38,11 @@ financial write.
 
 ## 2:15–2:40 — Human approval
 
-Click **Approve final write**.
+Click **Approve sandbox export**.
 
 “The owner makes the consequential decision. KEY-9 completes the sandbox export
-and returns a signed proof: three receipts, 18 time entries, one discrepancy,
-and zero secrets exposed.”
+and returns redacted audit proof: three receipts, 18 time entries, one
+discrepancy, and zero secrets exposed. No real accounting system is modified.”
 
 ## 2:40–3:05 — Blocked attack
 

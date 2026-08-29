@@ -41,8 +41,8 @@ before the external financial write.
 - Google Cloud Run for the agent runtime
 - Google Secret Manager adapter for versioned credentials
 - A model-independent Python policy and credential-broker boundary
-- Vinext/React for the responsive mission console
-- Ten regression tests covering denial, exact-host checks, scope isolation,
+- Next.js/React for the responsive mission console
+- Fourteen regression tests covering denial, exact-host checks, scope isolation,
   approvals, TTL limits, revocation, and redaction
 
 ## Challenges
@@ -58,7 +58,7 @@ credentials.
 
 ## Accomplishments
 
-- A working end-to-end mission and approval experience
+- A working end-to-end mission and server-isolated approval experience
 - Google ADK agent with bounded contractor tools
 - Exact-target, least-scope, short-lease authorization
 - Single-use credential injection with redacted results

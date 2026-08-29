@@ -4,9 +4,10 @@
 
 | Component | Responsibility | May access plaintext secrets? |
 |---|---|---:|
-| KEY-9 console | Capture a goal, show progress, request owner approval | No |
+| KEY-9 console | Capture a goal, show progress, request human approval | No |
 | Gemini 3.5 / Google ADK | Plan work and select bounded tools | No |
 | Policy engine | Validate alias, exact host, scope, TTL, and approval | No |
+| Private approval bridge | Convert the explicit UI approval into server authority; never exposed as an agent tool | No |
 | Credential broker | Resolve an approved alias and inject it into one connector call | Briefly, in process |
 | Secret Manager | Store versioned secret material under IAM | Yes |
 | Connector | Perform one scoped service action | Briefly, for that call |
@@ -32,7 +33,7 @@ sequenceDiagram
     Target-->>Broker: Operational result
     Broker-->>ADK: Redacted result; lease revoked
     ADK-->>UI: Evidence and approval hold
-    UI-->>Owner: Proof of action
+    UI-->>Owner: Redacted proof of action
 ```
 
 ## Deployment
@@ -47,7 +48,9 @@ flowchart LR
 
 The console's `/api/agent` route is the only browser-to-agent bridge. It rejects
 secret-like input, creates an isolated ADK session, sends the operational goal,
-and returns only the final redacted proof. If Cloud Run is unavailable, the
+and returns only the final redacted proof. A server-only bridge token protects
+the ADK and approval endpoints; the model-facing export tool cannot accept an
+approval argument. If Cloud Run is unavailable, the
 bridge fails closed to the disclosed deterministic sandbox.
 
 ## State
