@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1200" viewBox="0 0 1800 1200">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#07111f"/>
+      <stop offset="1" stop-color="#10243a"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f4a340"/>
+      <stop offset="1" stop-color="#e8672d"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#000" flood-opacity="0.32"/>
+    </filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0 0 L12 6 L0 12 Z" fill="#72d4ff"/>
+    </marker>
+    <marker id="arrowOrange" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0 0 L12 6 L0 12 Z" fill="#f4a340"/>
+    </marker>
+    <style>
+      .title { font: 800 58px Arial, sans-serif; fill: #f8fbff; letter-spacing: 1px; }
+      .subtitle { font: 400 27px Arial, sans-serif; fill: #adc4d8; }
+      .label { font: 800 29px Arial, sans-serif; fill: #f8fbff; }
+      .body { font: 400 21px Arial, sans-serif; fill: #c5d6e5; }
+      .small { font: 700 18px Arial, sans-serif; fill: #8fa9bd; letter-spacing: 1.2px; }
+      .chip { font: 800 17px Arial, sans-serif; fill: #07111f; letter-spacing: .7px; }
+      .node { fill: #122b43; stroke: #315772; stroke-width: 2; rx: 22; filter: url(#shadow); }
+      .google { fill: #15324c; stroke: #72d4ff; stroke-width: 3; rx: 22; filter: url(#shadow); }
+      .guard { fill: #3a251c; stroke: #f4a340; stroke-width: 3; rx: 22; filter: url(#shadow); }
+      .cloud { fill: #102a3e; stroke: #4c7190; stroke-width: 2; rx: 18; }
+      .flow { fill: none; stroke: #72d4ff; stroke-width: 5; marker-end: url(#arrow); }
+      .approval { fill: none; stroke: #f4a340; stroke-width: 5; marker-end: url(#arrowOrange); }
+      .boundary { fill: none; stroke: #f4a340; stroke-width: 3; stroke-dasharray: 12 10; rx: 30; }
+    </style>
+  </defs>
+
+  <rect width="1800" height="1200" fill="url(#bg)"/>
+  <circle cx="1660" cy="70" r="260" fill="#1b6b8d" opacity="0.13"/>
+  <circle cx="100" cy="1160" r="340" fill="#f08a35" opacity="0.08"/>
+
+  <text x="90" y="92" class="title">WATCH-DAWG KEY-9</text>
+  <text x="90" y="137" class="subtitle">Give the goal. Never give the secret.</text>
+  <rect x="1390" y="60" width="320" height="50" rx="25" fill="url(#accent)"/>
+  <text x="1550" y="92" text-anchor="middle" class="chip">TASKMASTER • CONTEST SANDBOX</text>
+
+  <rect x="90" y="205" width="390" height="180" class="node"/>
+  <text x="125" y="253" class="small">1 • HUMAN CONTROL</text>
+  <text x="125" y="302" class="label">Contractor + KEY-9 Console</text>
+  <text x="125" y="341" class="body">Operational goal in. Redacted proof out.</text>
+  <text x="125" y="371" class="body">Final sandbox export requires a click.</text>
+
+  <rect x="705" y="205" width="390" height="180" class="google"/>
+  <text x="740" y="253" class="small">2 • REASONING LAYER</text>
+  <text x="740" y="302" class="label">Gemini 3.5 Flash + ADK</text>
+  <text x="740" y="341" class="body">Plans the mission and selects tools.</text>
+  <text x="740" y="371" class="body">Sees aliases and outcomes—never secrets.</text>
+
+  <rect x="1320" y="205" width="390" height="180" class="guard"/>
+  <text x="1355" y="253" class="small">3 • DETERMINISTIC GUARD</text>
+  <text x="1355" y="302" class="label">Fail-Closed Policy Engine</text>
+  <text x="1355" y="341" class="body">Exact host • scope • TTL • approval</text>
+  <text x="1355" y="371" class="body">Unknown or unsafe request = no action.</text>
+
+  <path d="M480 295 H690" class="flow"/>
+  <path d="M1095 295 H1305" class="flow"/>
+  <text x="585" y="276" text-anchor="middle" class="small">GOAL</text>
+  <text x="1200" y="276" text-anchor="middle" class="small">ALIAS + TARGET + SCOPE</text>
+
+  <rect x="575" y="485" width="650" height="330" class="boundary"/>
+  <text x="605" y="521" class="small" fill="#f4a340">SECRET TRUST BOUNDARY • OUTSIDE MODEL CONTEXT</text>
+
+  <rect x="625" y="555" width="550" height="180" class="guard"/>
+  <text x="665" y="602" class="small">4 • SERVER-ONLY EXECUTION</text>
+  <text x="665" y="651" class="label">Private Approval Bridge + Broker</text>
+  <text x="665" y="690" class="body">Creates a one-use lease and injects the</text>
+  <text x="665" y="720" class="body">credential only at the connector boundary.</text>
+
+  <path d="M1515 385 C1515 470 1210 470 1105 545" class="flow"/>
+  <path d="M285 385 C285 490 525 500 625 600" class="approval"/>
+  <text x="338" y="470" class="small" fill="#f4a340">HUMAN APPROVAL</text>
+
+  <rect x="90" y="915" width="350" height="160" class="cloud"/>
+  <text x="125" y="960" class="small">GOOGLE CLOUD</text>
+  <text x="125" y="1006" class="label">Cloud Run</text>
+  <text x="125" y="1041" class="body">ADK agent runtime</text>
+
+  <rect x="515" y="915" width="350" height="160" class="cloud"/>
+  <text x="550" y="960" class="small">CREDENTIAL STORE</text>
+  <text x="550" y="1006" class="label">Secret Manager</text>
+  <text x="550" y="1041" class="body">Versioned alias mapping</text>
+
+  <rect x="940" y="915" width="350" height="160" class="cloud"/>
+  <text x="975" y="960" class="small">SCOPED CONNECTORS</text>
+  <text x="975" y="1006" class="label">Watch-Dawg + Drive</text>
+  <text x="975" y="1041" class="body">Seeded job and receipts</text>
+
+  <rect x="1365" y="915" width="345" height="160" class="cloud"/>
+  <text x="1400" y="960" class="small">REVERSIBLE OUTPUT</text>
+  <text x="1400" y="1006" class="label">Accounting Sandbox</text>
+  <text x="1400" y="1041" class="body">Export draft + audit proof</text>
+
+  <path d="M730 815 C680 850 420 860 285 900" class="flow"/>
+  <path d="M820 815 C800 855 730 870 690 900" class="flow"/>
+  <path d="M980 815 C1010 855 1080 870 1115 900" class="flow"/>
+  <path d="M1085 815 C1190 850 1430 860 1538 900" class="flow"/>
+
+  <text x="90" y="1145" class="subtitle">Security invariant: the model can request an approved action, but it cannot retrieve a secret or approve its own write.</text>
+</svg>
