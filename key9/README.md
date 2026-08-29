@@ -196,7 +196,7 @@ IAM, secret, and Cloud Run setup in one command sequence:
 ```bash
 git clone --branch key9-contest https://github.com/bobhay75/Watch-Dawg-AI.git
 cd Watch-Dawg-AI/key9
-./scripts/bootstrap-contest-cloud.sh
+bash ./scripts/bootstrap-contest-cloud.sh
 ```
 
 Cloud Run stays in `us-central1`, while Gemini 3.5 Flash uses Vertex AI's
