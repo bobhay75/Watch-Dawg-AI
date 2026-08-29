@@ -9,6 +9,7 @@ test_reports/*.jpeg
 test_reports/pytest/
 .env.*
 *.env
+key9-sites-env.txt
 credentials.json
 *.pem
 *.key
