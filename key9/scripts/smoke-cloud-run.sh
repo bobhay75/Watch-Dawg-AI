@@ -2,8 +2,11 @@
 set -euo pipefail
 
 : "${KEY9_AGENT_URL:?Set KEY9_AGENT_URL to the Cloud Run service URL}"
+: "${KEY9_AGENT_TOKEN:?Set KEY9_AGENT_TOKEN to the private bridge token}"
 
 KEY9_BASE_URL="${KEY9_AGENT_URL%/}"
 
 curl --fail --silent --show-error "${KEY9_BASE_URL}/healthz"
-curl --fail --silent --show-error "${KEY9_BASE_URL}/list-apps"
+curl --fail --silent --show-error \
+  -H "x-key9-bridge-token: ${KEY9_AGENT_TOKEN}" \
+  "${KEY9_BASE_URL}/list-apps"

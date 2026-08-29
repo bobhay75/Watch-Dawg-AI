@@ -2,6 +2,7 @@
 set -euo pipefail
 
 : "${GOOGLE_CLOUD_PROJECT:?Set GOOGLE_CLOUD_PROJECT to the contest project ID}"
+: "${KEY9_BRIDGE_SECRET:?Set KEY9_BRIDGE_SECRET to the Secret Manager secret name holding the bridge token}"
 
 KEY9_REGION="${GOOGLE_CLOUD_LOCATION:-us-central1}"
 KEY9_SERVICE="${KEY9_CLOUD_RUN_SERVICE:-watch-dawg-key9-agent}"
@@ -32,7 +33,8 @@ gcloud run deploy "${KEY9_SERVICE}" \
   --cpu 1 \
   --memory 512Mi \
   --timeout 120 \
-  --set-env-vars "GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT},GOOGLE_CLOUD_LOCATION=${KEY9_REGION},GOOGLE_GENAI_USE_VERTEXAI=True,KEY9_MODEL=gemini-3.5-flash,KEY9_SANDBOX=true"
+  --set-env-vars "GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT},GOOGLE_CLOUD_LOCATION=${KEY9_REGION},GOOGLE_GENAI_USE_VERTEXAI=True,KEY9_MODEL=gemini-3.5-flash,KEY9_SANDBOX=true" \
+  --set-secrets "KEY9_BRIDGE_TOKEN=${KEY9_BRIDGE_SECRET}:latest"
 
 gcloud run services describe "${KEY9_SERVICE}" \
   --project "${GOOGLE_CLOUD_PROJECT}" \
