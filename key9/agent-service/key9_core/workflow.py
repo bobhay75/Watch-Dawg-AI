@@ -159,21 +159,56 @@ def reconcile_job(job_id: str = "WD-1042") -> dict[str, Any]:
 
 def prepare_accounting_export(
     job_id: str = "WD-1042",
-    owner_approved: bool = False,
 ) -> dict[str, Any]:
-    """Prepare a reversible export draft; hold external writes for owner approval."""
+    """Prepare a reversible export draft and always hold the external write.
+
+    This is the model-facing ADK tool. It deliberately has no approval argument,
+    so the model cannot grant its own authority by choosing a tool parameter.
+    """
     if job_id != DEMO_JOB["job_id"]:
-        return {"status": "blocked", "reason": "sandbox_job_not_found", "job_id": job_id}
+        return {
+            "status": "blocked",
+            "reason": "sandbox_job_not_found",
+            "job_id": job_id,
+        }
     return _brokered_action(
         alias="accounting.export",
         target="https://sandbox-accounting.watch-dawg.ai",
         scopes=["exports:create"],
-        owner_approved=owner_approved,
+        owner_approved=False,
+        action=lambda: {
+            "status": "approval_required",
+            "job_id": job_id,
+            "artifact": "Johnson-remodel-closeout.csv",
+            "rows": 21,
+            "external_write_performed": False,
+        },
+    )
+
+
+def approve_accounting_export(job_id: str = "WD-1042") -> dict[str, Any]:
+    """Execute the contest export after trusted server-side human approval.
+
+    This function is intentionally not registered as an ADK tool. Only the
+    authenticated bridge endpoint in ``main.py`` calls it.
+    """
+    if job_id != DEMO_JOB["job_id"]:
+        return {
+            "status": "blocked",
+            "reason": "sandbox_job_not_found",
+            "job_id": job_id,
+        }
+    return _brokered_action(
+        alias="accounting.export",
+        target="https://sandbox-accounting.watch-dawg.ai",
+        scopes=["exports:create"],
+        owner_approved=True,
         action=lambda: {
             "status": "success",
             "job_id": job_id,
             "artifact": "Johnson-remodel-closeout.csv",
             "rows": 21,
-            "external_write_performed": True,
+            "sandbox_export_completed": True,
+            "external_write_performed": False,
         },
     )
