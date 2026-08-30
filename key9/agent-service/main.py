@@ -24,6 +24,7 @@ ALLOWED_ORIGINS = [
     if origin.strip()
 ]
 BRIDGE_TOKEN = os.getenv("KEY9_BRIDGE_TOKEN", "").strip()
+# Cloud Run reserves some paths ending in "z", including common /healthz routes.
 PUBLIC_PATHS = frozenset({"/v1/health", "/v1/security-posture"})
 
 app: FastAPI = get_fast_api_app(
