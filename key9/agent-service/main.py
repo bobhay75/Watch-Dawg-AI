@@ -24,7 +24,7 @@ ALLOWED_ORIGINS = [
     if origin.strip()
 ]
 BRIDGE_TOKEN = os.getenv("KEY9_BRIDGE_TOKEN", "").strip()
-PUBLIC_PATHS = frozenset({"/healthz", "/v1/security-posture"})
+PUBLIC_PATHS = frozenset({"/v1/health", "/v1/security-posture"})
 
 app: FastAPI = get_fast_api_app(
     agents_dir=AGENTS_DIR,
@@ -54,7 +54,7 @@ async def require_private_bridge(request: Request, call_next):
     return await call_next(request)
 
 
-@app.get("/healthz", tags=["operations"])
+@app.get("/v1/health", tags=["operations"])
 async def healthcheck() -> dict[str, object]:
     return {
         "status": "ok",
