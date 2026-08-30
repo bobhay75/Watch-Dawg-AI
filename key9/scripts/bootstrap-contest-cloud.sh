@@ -37,6 +37,14 @@ gcloud services enable \
   secretmanager.googleapis.com \
   --project "${KEY9_PROJECT}"
 
+# Source deployments use the Compute Engine default service account for the
+# Cloud Build step. Cloud Run Builder includes the storage and Artifact
+# Registry permissions that build needs to read the uploaded source archive.
+gcloud projects add-iam-policy-binding "${KEY9_PROJECT}" \
+  --member "serviceAccount:${KEY9_RUNTIME_SERVICE_ACCOUNT}" \
+  --role roles/run.builder \
+  --condition=None >/dev/null
+
 if gcloud secrets describe "${KEY9_SECRET_NAME}" --project "${KEY9_PROJECT}" >/dev/null 2>&1; then
   printf '%s' "${KEY9_BRIDGE_TOKEN}" | gcloud secrets versions add "${KEY9_SECRET_NAME}" \
     --data-file=- \
