@@ -31,6 +31,8 @@ gcloud run deploy "${KEY9_SERVICE}" \
   --project "${GOOGLE_CLOUD_PROJECT}" \
   --region "${KEY9_RUN_REGION}" \
   --service-account "${KEY9_RUNTIME_SERVICE_ACCOUNT}" \
+  --ingress all \
+  --default-url \
   --allow-unauthenticated \
   --min-instances 0 \
   --max-instances 2 \
