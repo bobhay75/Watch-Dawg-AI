@@ -157,7 +157,7 @@ uvicorn main:app --host 127.0.0.1 --port 8080
 Verify the local service:
 
 ```bash
-curl http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:8080/v1/health
 curl -H "x-key9-bridge-token: $KEY9_BRIDGE_TOKEN" \
   http://127.0.0.1:8080/list-apps
 ```
@@ -256,7 +256,7 @@ curl -X POST "$KEY9_AGENT_URL/run_sse" \
 - Policy/broker/workflow regression tests: **14/14 passing**
 - ADK server import: passing with `google-adk 2.8.0`
 - ADK discovery: returns only `key9_agent`
-- `/healthz`: passing
+- `/v1/health`: passing
 - `/v1/security-posture`: passing
 
 The Gemini-backed Cloud Run execution is the remaining environment-dependent
