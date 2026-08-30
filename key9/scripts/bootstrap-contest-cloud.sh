@@ -8,6 +8,7 @@ KEY9_SERVICE="${KEY9_CLOUD_RUN_SERVICE:-watch-dawg-key9-agent}"
 KEY9_SECRET_NAME="${KEY9_BRIDGE_SECRET:-key9-bridge-token}"
 KEY9_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KEY9_ENV_FILE="${KEY9_SCRIPT_DIR}/../key9-sites-env.txt"
+KEY9_SOURCE_BUCKET="gs://run-sources-${KEY9_PROJECT}-${KEY9_RUN_REGION}"
 
 if [[ ! "${KEY9_PROJECT}" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]]; then
   echo "GOOGLE_CLOUD_PROJECT is not a valid project ID" >&2
@@ -44,6 +45,15 @@ gcloud projects add-iam-policy-binding "${KEY9_PROJECT}" \
   --member "serviceAccount:${KEY9_RUNTIME_SERVICE_ACCOUNT}" \
   --role roles/run.builder \
   --condition=None >/dev/null
+
+# A prior source-upload attempt may have created its bucket before the new
+# project-level role propagated. Bind read access directly on that existing
+# bucket so a retry can resolve the uploaded source archive immediately.
+if gcloud storage buckets describe "${KEY9_SOURCE_BUCKET}" >/dev/null 2>&1; then
+  gcloud storage buckets add-iam-policy-binding "${KEY9_SOURCE_BUCKET}" \
+    --member "serviceAccount:${KEY9_RUNTIME_SERVICE_ACCOUNT}" \
+    --role roles/storage.objectViewer >/dev/null
+fi
 
 if gcloud secrets describe "${KEY9_SECRET_NAME}" --project "${KEY9_PROJECT}" >/dev/null 2>&1; then
   printf '%s' "${KEY9_BRIDGE_TOKEN}" | gcloud secrets versions add "${KEY9_SECRET_NAME}" \
