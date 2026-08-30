@@ -33,7 +33,8 @@ gcloud run deploy "${KEY9_SERVICE}" \
   --service-account "${KEY9_RUNTIME_SERVICE_ACCOUNT}" \
   --ingress all \
   --default-url \
-  --allow-unauthenticated \
+  --no-invoker-iam-check \
+  --no-iap \
   --min-instances 0 \
   --max-instances 2 \
   --concurrency 20 \
