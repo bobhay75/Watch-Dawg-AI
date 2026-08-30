@@ -1,16 +1,33 @@
 # Watch-Dawg AI
 
-Watch-Dawg AI is the audit and intelligence layer for transaction systems. It verifies allocation rules, reconciles balances, flags anomalies, and explains money movement.
+**Watch-Dawg AI is a financial-loss prevention and audit layer for small contractors and field-service businesses.** Its job is to catch money, documentation, and transaction problems before they become lost revenue, missed deductions, disputes, or bad records.
 
-The initial build is a deterministic audit engine and browser demo designed to integrate with Grow Vault.
+The product direction is simple: **work happens in the field, Watch-Dawg watches the records, and the DAWG flags what needs attention.** That includes transaction anomalies today and expands naturally into contractor workflows such as receipts, job-cost allocation, undocumented labor, and unapproved extra work.
 
-## MVP features
+The current repository contains the deterministic audit core and browser demo that power that mission. The earliest test scenarios were developed against Grow Vault-style transaction records, but the audit engine is intentionally reusable and is not limited to Grow Vault.
 
-- Transaction allocation audit for gross, vault rate, vaulted amount, and spendable amount.
-- Ledger reconciliation for deposits, purchases, and vault withdrawals.
+## Current MVP features
+
+- Deterministic transaction-allocation audit for gross amount, allocation rate, protected/vaulted amount, and spendable amount.
+- Ledger reconciliation for deposits, purchases, withdrawals, and unknown transaction types.
 - DAW health score, anomaly review queue, audit trail table, and plain-English report.
-- Automatic ChatGPT AI insights after each user-run audit, including explanations, next actions, and a review-ready summary.
+- Automatic AI insights after each user-run audit, including explanations, recommended next actions, and a review-ready summary.
 - Built-in verified, ledger, and anomaly scenarios for fast testing.
+
+## Contractor product direction
+
+Watch-Dawg is being developed around a specific operating problem: small contractors often lose money because the work gets done faster than the paperwork gets captured.
+
+The intended contractor workflow connects the audit core to jobsite records so Watch-Dawg can help identify issues such as:
+
+- purchases that are not assigned to the correct job;
+- missing or unmatched receipts;
+- labor that lacks supporting daily documentation;
+- customer-requested extra work without an approved change order;
+- transaction or job-cost records that do not reconcile;
+- exceptions that require an owner or administrator to review them.
+
+The principle is **detect first, explain why, and give the human a clear next action** rather than silently changing financial records.
 
 ## Reproducible Testing
 
@@ -48,9 +65,9 @@ Watch-Dawg tests passed
 The test suite verifies:
 
 - A correct 10% allocation is `VERIFIED`.
-- Incorrect vault and spendable allocations are sent to `REVIEW`.
+- Incorrect protected/vaulted and spendable allocations are sent to `REVIEW`.
 - Invalid numeric values and out-of-range allocation rates are rejected for review.
-- Deposits, purchases, and vault withdrawals reconcile against opening balances.
+- Deposits, purchases, and withdrawals reconcile against opening balances.
 - Unknown transaction types are flagged instead of silently accepted.
 - A clean ledger produces a DAW score of `100`.
 - The built-in anomaly scenario produces a `REVIEW` verdict, multiple human-review findings, and a DAW score below `100`.
