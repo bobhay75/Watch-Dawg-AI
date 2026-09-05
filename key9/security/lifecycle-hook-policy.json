@@ -1,0 +1,16 @@
+{
+  "schema": "key9.lifecycle-hook-policy.v1",
+  "default": "deny",
+  "application_defined_hooks": [],
+  "forbidden_npm_lifecycle_scripts": [
+    "preinstall",
+    "install",
+    "postinstall",
+    "prepare",
+    "prepublish",
+    "prepublishOnly"
+  ],
+  "dependency_install_policy": "CI installs Node dependencies with npm ci --ignore-scripts.",
+  "review_requirement": "Any added or changed hook requires separate owner authorization and a signed payload binding.",
+  "runtime_requirement": "Hooks must run without credential access and under an explicit least-privilege sandbox."
+}
