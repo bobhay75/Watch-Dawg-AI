@@ -1,4 +1,4 @@
-name: Deploy Watch-Dawg deterministic demo
+name: Deploy Watch-Dawg + KEY-9 public demo
 on:
   push:
     branches: [main]
@@ -22,10 +22,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Build static demo artifact
+      - name: Build static public artifact
         run: |
           mkdir -p public
-          cp index.html watchdawg.js public/
+          cp public-demo.html public/index.html
+          cp watchdawg.js public/watchdawg.js
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload static demo only
