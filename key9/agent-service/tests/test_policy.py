@@ -33,6 +33,20 @@ class PolicyEngineTests(unittest.TestCase):
         self.assertFalse(insecure.allowed)
         self.assertFalse(lookalike.allowed)
 
+        for target in (
+            "https://www.googleapis.com:444",
+            "https://user@www.googleapis.com",
+            "https://www.googleapis.com.evil.example",
+        ):
+            with self.subTest(target=target):
+                rejected = self.policy.evaluate(
+                    alias="drive.receipts",
+                    target=target,
+                    scopes=["receipts:read"],
+                )
+                self.assertFalse(rejected.allowed)
+                self.assertEqual(rejected.reason, "target_not_allowlisted")
+
     def test_secret_disclosure_scope_is_never_allowed(self) -> None:
         decision = self.policy.evaluate(
             alias="watchdawg.production",
@@ -77,7 +91,7 @@ class PolicyEngineTests(unittest.TestCase):
         self.assertTrue(decision.allowed)
         self.assertEqual(decision.ttl_seconds, 60)
 
-    def test_lease_is_opaque_and_revocable(self) -> None:
+    def test_lease_is_opaque_and_consumable(self) -> None:
         decision = self.policy.evaluate(
             alias="drive.receipts",
             target="https://www.googleapis.com",
@@ -95,7 +109,7 @@ class PolicyEngineTests(unittest.TestCase):
         self.assertTrue(lease.lease_id.startswith("k9l_"))
         self.assertGreater(lease.expires_at, time.time())
         self.assertEqual(leases.validate(lease.lease_id), lease)
-        self.assertTrue(leases.revoke(lease.lease_id))
+        self.assertEqual(leases.consume(lease.lease_id), lease)
         with self.assertRaisesRegex(PermissionError, "lease_not_found"):
             leases.validate(lease.lease_id)
 

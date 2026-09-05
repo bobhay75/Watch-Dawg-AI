@@ -7,7 +7,7 @@ import json
 import os
 from typing import Any, Protocol
 
-from .policy import LeaseStore, PolicyDecision, PolicyEngine
+from .policy import LeaseStore, PolicyDecision, PolicyEngine, normalize_target_host
 from .redaction import redact_payload
 
 
@@ -92,13 +92,21 @@ class CredentialBroker:
     def invoke(
         self,
         lease_id: str,
+        *,
+        target: str,
         executor: Callable[[str], Any],
     ) -> Any:
-        lease = self._leases.validate(lease_id)
-        secret_value = self._provider.access(lease.alias)
+        # Consume authority before target checking, provider access, or connector
+        # execution. Every invocation attempt is therefore single-use, including
+        # failures and concurrent replays.
+        lease = self._leases.consume(lease_id)
+        if normalize_target_host(target) != lease.target_host:
+            raise PermissionError("lease_target_mismatch")
+
+        secret_value = ""
         try:
+            secret_value = self._provider.access(lease.alias)
             result = executor(secret_value)
             return redact_payload(result, (secret_value,))
         finally:
             secret_value = ""  # Drop the last application-level reference.
-            self._leases.revoke(lease_id)

@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from google.adk.cli.fast_api import get_fast_api_app
 from pydantic import BaseModel, Field
 
+from key9_core.config import sandbox_enabled, session_service_uri
 from key9_core.workflow import approve_accounting_export
 
 
@@ -29,7 +30,7 @@ PUBLIC_PATHS = frozenset({"/v1/health", "/v1/security-posture"})
 
 app: FastAPI = get_fast_api_app(
     agents_dir=AGENTS_DIR,
-    session_service_uri=os.getenv("KEY9_SESSION_URI", "memory://"),
+    session_service_uri=session_service_uri(),
     allow_origins=ALLOWED_ORIGINS,
     web=False,
 )
@@ -74,9 +75,14 @@ async def security_posture() -> dict[str, object]:
         "target_allowlist": True,
         "scope_allowlist": True,
         "short_lived_leases": True,
-        "owner_approval_for_writes": True,
-        "redacted_audit": True,
+        "atomic_lease_consumption": True,
+        "invocation_target_binding": True,
+        "public_demo_can_relay_owner_approval": False,
+        "authenticated_owner_approval": "required_not_implemented",
+        "redaction_boundary": "recursive_known-value-and-pattern",
+        "audit_receipts": "dynamic_sandbox_evidence",
         "model_can_self_approve": False,
+        "persistent_sessions_required_outside_sandbox": True,
     }
 
 
@@ -85,6 +91,11 @@ async def approve_export(
     approval: ExportApprovalRequest,
     x_key9_human_approval: str = Header(default=""),
 ) -> dict[str, object]:
+    if not sandbox_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="production_owner_authentication_required",
+        )
     if not approval.human_approved or x_key9_human_approval != "confirmed":
         raise HTTPException(status_code=400, detail="human_approval_required")
     return approve_accounting_export(approval.job_id)

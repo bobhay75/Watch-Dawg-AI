@@ -12,6 +12,7 @@ import os
 from collections.abc import Callable
 from typing import Any
 
+from .audit import create_audit_receipt
 from .broker import (
     CredentialBroker,
     GoogleSecretManagerProvider,
@@ -45,6 +46,32 @@ def _build_broker() -> CredentialBroker:
 _BROKER = _build_broker()
 
 
+def _attach_receipt(
+    result: dict[str, Any],
+    *,
+    alias: str,
+    target: str,
+    scopes: list[str],
+    phase: str,
+) -> dict[str, Any]:
+    sandbox = os.getenv("KEY9_SANDBOX", "true").lower() == "true"
+    reported_effect = result.get("external_write_performed")
+    external_write = reported_effect if isinstance(reported_effect, bool) else None
+    return {
+        **result,
+        "audit_receipt": create_audit_receipt(
+            alias=alias,
+            target=target,
+            scopes=scopes,
+            status=str(result.get("status", "unknown")),
+            phase=phase,
+            sandbox=sandbox,
+            external_write_performed=external_write,
+            result=result,
+        ),
+    }
+
+
 def _brokered_action(
     *,
     alias: str,
@@ -61,31 +88,42 @@ def _brokered_action(
         owner_approved=owner_approved,
     )
     if not decision.allowed or lease_id is None:
-        return {
+        return _attach_receipt({
             "status": "approval_required" if decision.requires_approval else "blocked",
             "reason": decision.reason,
             "credential_alias": alias,
             "external_write_performed": False,
             "secret_values_visible_to_model": 0,
-        }
+        }, alias=alias, target=target, scopes=scopes, phase="authorization")
 
     try:
-        result = _BROKER.invoke(lease_id, lambda _credential: action())
+        result = _BROKER.invoke(
+            lease_id,
+            target=target,
+            executor=lambda _credential: action(),
+        )
     except Exception:  # The connector boundary fails closed and emits no provider detail.
-        return {
+        consequential = decision.requires_approval
+        return _attach_receipt({
             "status": "blocked",
             "reason": "credential_connector_unavailable",
             "credential_alias": alias,
-            "external_write_performed": False,
+            "lease_state": "consumed_before_connector",
+            "effect_state": (
+                "unknown_after_connector_boundary_failure"
+                if consequential
+                else "no_write_scope_authorized"
+            ),
+            "external_write_performed": None if consequential else False,
             "secret_values_visible_to_model": 0,
-        }
+        }, alias=alias, target=target, scopes=scopes, phase="connector")
 
-    return {
+    return _attach_receipt({
         **result,
         "credential_alias": alias,
-        "lease_state": "revoked_after_use",
+        "lease_state": "consumed_before_connector",
         "secret_values_visible_to_model": 0,
-    }
+    }, alias=alias, target=target, scopes=scopes, phase="connector")
 
 
 def plan_secure_closeout(goal: str, job_id: str = "WD-1042") -> dict[str, Any]:
@@ -116,7 +154,12 @@ def read_watchdawg_job(job_id: str = "WD-1042") -> dict[str, Any]:
         target="https://api.watch-dawg.ai",
         scopes=["jobs:read"],
         owner_approved=False,
-        action=lambda: {"status": "success", **DEMO_JOB},
+        action=lambda: {
+            "status": "success",
+            **DEMO_JOB,
+            "evidence_source": "seeded_sandbox_fixture",
+            "external_write_performed": False,
+        },
     )
 
 
@@ -134,6 +177,8 @@ def collect_job_receipts(job_id: str = "WD-1042") -> dict[str, Any]:
             "job_id": job_id,
             "receipts": DEMO_RECEIPTS,
             "count": len(DEMO_RECEIPTS),
+            "evidence_source": "seeded_sandbox_fixture",
+            "external_write_performed": False,
         },
     )
 
@@ -204,11 +249,11 @@ def approve_accounting_export(job_id: str = "WD-1042") -> dict[str, Any]:
         scopes=["exports:create"],
         owner_approved=True,
         action=lambda: {
-            "status": "success",
+            "status": "simulated",
             "job_id": job_id,
-            "artifact": "Johnson-remodel-closeout.csv",
+            "artifact_preview": "Johnson-remodel-closeout.csv",
             "rows": 21,
-            "sandbox_export_completed": True,
+            "sandbox_action_simulated": True,
             "external_write_performed": False,
         },
     )

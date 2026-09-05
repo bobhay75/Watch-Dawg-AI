@@ -47,22 +47,29 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
+  if (body.action !== undefined && body.action !== "run" && body.action !== "approve") {
+    return NextResponse.json({ error: "unsupported_action" }, { status: 400 });
+  }
+
   const action = body.action === "approve" ? "approve" : "run";
   const goal = typeof body.goal === "string" ? body.goal.trim() : "";
   const jobId = typeof body.job_id === "string" ? body.job_id.trim() : "WD-1042";
   if (action === "approve" && jobId !== "WD-1042") {
     return NextResponse.json({ error: "sandbox_job_not_found" }, { status: 400 });
   }
-  if (action === "approve" && !process.env.KEY9_AGENT_URL?.trim()) {
+  if (action === "approve") {
     return NextResponse.json({
       mode: "sandbox",
       service: "local-policy-proof",
       proof: {
-        artifact: "Johnson-remodel-closeout.csv",
-        final_write: "sandbox_export_completed",
+        artifact_preview: "Johnson-remodel-closeout.csv",
+        final_write: "sandbox_simulation_only",
+        sandbox_action_simulated: true,
+        external_write_performed: false,
         secrets_exposed: 0,
       },
-      summary: "Human approval completed the reversible contest-sandbox export. No external accounting system was modified.",
+      summary:
+        "The public demo recorded a sandbox approval simulation only. No connector or external accounting system was called.",
     });
   }
   if (!goal || goal.length > 1_000) {
@@ -92,26 +99,6 @@ export async function POST(request: Request) {
   const userId = "contest-judge";
 
   try {
-    if (action === "approve") {
-      const approval = await fetch(`${baseUrl}/v1/approve-export`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-key9-bridge-token": bridgeToken,
-          "x-key9-human-approval": "confirmed",
-        },
-        body: JSON.stringify({ job_id: jobId, human_approved: true }),
-      });
-      if (!approval.ok) throw new Error(`approval_${approval.status}`);
-      const proof = (await approval.json()) as Record<string, unknown>;
-      return NextResponse.json({
-        mode: "google-cloud",
-        service: "Cloud Run approval boundary",
-        proof,
-        summary: "Human approval completed the reversible contest-sandbox export. No real accounting system was modified.",
-      });
-    }
-
     const createSession = await fetch(
       `${baseUrl}/apps/key9_agent/users/${userId}/sessions/${sessionId}`,
       {
@@ -125,7 +112,7 @@ export async function POST(request: Request) {
     );
     if (!createSession.ok) throw new Error(`session_${createSession.status}`);
 
-    const run = await fetch(`${baseUrl}/run_sse`, {
+    const run = await fetch(`${baseUrl}/run`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -155,15 +142,6 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error("KEY-9 agent unavailable", error instanceof Error ? error.message : "unknown");
-    if (action === "approve") {
-      return NextResponse.json(
-        {
-          error: "approval_failed_closed",
-          message: "Approval failed safely; no export was completed.",
-        },
-        { status: 503 }
-      );
-    }
     return NextResponse.json(
       { ...sandboxResult(goal), degraded_from: "google-cloud", fail_closed: true },
       { status: 200 }

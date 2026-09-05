@@ -26,8 +26,9 @@ identity without ever possessing or revealing the credential.
 KEY-9 converts a contractor's goal into a bounded multi-step mission. Gemini
 selects allowlisted tools, while a separate policy engine validates the secret
 alias, exact destination, requested scopes, lease duration, and approval state.
-The credential broker resolves and injects the secret only at the connector
-boundary, redacts the result, revokes the lease, and returns proof.
+The credential broker atomically consumes a lease, resolves and injects the
+secret only at the connector boundary, recursively redacts the result, and
+returns an evidence-labeled receipt.
 
 The reproducible demo closes a seeded Watch-Dawg remodeling job: it gathers
 field records, collects three receipts, reconciles labor and materials, flags an
@@ -42,8 +43,9 @@ before the external financial write.
 - Google Secret Manager adapter for versioned credentials
 - A model-independent Python policy and credential-broker boundary
 - Next.js/React for the responsive mission console
-- Fourteen regression tests covering denial, exact-host checks, scope isolation,
-  approvals, TTL limits, revocation, and redaction
+- Thirty regression tests covering denial, exact-host checks, scope
+  isolation, approval boundaries, TTL limits, concurrent replay, recursive
+  redaction, context/hook policy, persistent-state guards, and patch evidence
 
 ## Challenges
 
@@ -58,10 +60,10 @@ credentials.
 
 ## Accomplishments
 
-- A working end-to-end mission and server-isolated approval experience
+- A working end-to-end sandbox mission with truthful local approval simulation
 - Google ADK agent with bounded contractor tools
 - Exact-target, least-scope, short-lease authorization
-- Single-use credential injection with redacted results
+- Atomic consume-before-use credential injection with redacted results
 - Fail-closed degradation and a visible audit trail
 - Reproducible tests and Cloud Run deployment configuration
 
@@ -81,6 +83,7 @@ return sanitized proof.”
 - Real Watch-Dawg receipt intake and accounting sandbox connectors
 - Firestore-backed signed audit receipts and durable mission state
 - Independent security review before storing personal secrets
+- Private Cloud Run IAM, workload identity, and authenticated owner approval
 
 ## Links
 

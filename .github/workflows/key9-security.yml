@@ -1,0 +1,74 @@
+name: KEY-9 Security
+
+on:
+  pull_request:
+    paths:
+      - "key9/**"
+      - ".github/workflows/key9-security.yml"
+  push:
+    branches:
+      - key9-contest
+    paths:
+      - "key9/**"
+      - ".github/workflows/key9-security.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: key9-security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  trust-boundaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Audit Python dependencies
+        working-directory: key9/agent-service
+        run: |
+          python -m pip install --disable-pip-version-check pip-audit==2.10.1
+          python -m pip_audit -r requirements.txt
+      - name: Run policy and trust-boundary tests
+        working-directory: key9/agent-service
+        run: PYTHONPATH=. python -m unittest discover -s tests -v
+
+  web-console:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.1"
+          cache: npm
+          cache-dependency-path: key9/package-lock.json
+      - name: Install exact web dependencies
+        working-directory: key9
+        run: npm ci --ignore-scripts
+      - name: Audit production dependencies
+        working-directory: key9
+        run: npm audit --omit=dev --audit-level=high
+      - name: Lint
+        working-directory: key9
+        run: npm run lint
+      - name: Build production bundle
+        working-directory: key9
+        run: npm run build
+
+  agent-container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the Cloud Run image
+        run: docker build --tag watch-dawg-key9-agent:test key9/agent-service
+      - name: Import the packaged sandbox service
+        run: >-
+          docker run --rm
+          --entrypoint python
+          -e KEY9_BRIDGE_TOKEN=ci-synthetic-bridge-token
+          -e KEY9_SANDBOX=true
+          watch-dawg-key9-agent:test
+          -c "import main; assert main.app is not None"

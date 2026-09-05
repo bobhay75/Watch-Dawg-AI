@@ -153,10 +153,12 @@ export default function Home() {
       .then(async (response) => {
         const data = (await response.json()) as { mode?: AgentMode; summary?: string; message?: string };
         if (!response.ok) throw new Error(data.message ?? "Agent request failed");
+        if (runToken.current !== token) return;
         setAgentMode(data.mode ?? "sandbox");
         setAgentSummary(data.summary ?? "");
       })
       .catch((error: unknown) => {
+        if (runToken.current !== token) return;
         setAgentMode("sandbox");
         setAgentSummary(error instanceof Error ? error.message : "Fail-closed sandbox used.");
       });
@@ -168,6 +170,7 @@ export default function Home() {
     }
 
     await agentRun;
+    if (runToken.current !== token) return;
 
     setRunState("approval");
   }
@@ -233,18 +236,18 @@ export default function Home() {
         <aside className="rail" aria-label="Security posture">
           <div className="rail-heading">
             <span>SECURITY POSTURE</span>
-            <strong>LOCKED</strong>
+            <strong>SANDBOX</strong>
           </div>
 
-          <div className="posture-ring" aria-label="Protection score 100 percent">
-            <span>100</span>
-            <small>PROTECTED</small>
+          <div className="posture-ring" aria-label="Sandbox guard status">
+            <span>DEMO</span>
+            <small>GUARDED</small>
           </div>
 
           <div className="posture-list">
-            <div><LockKeyhole /><span>Model isolation<small>Secrets never enter Gemini</small></span><CheckCircle2 /></div>
+            <div><LockKeyhole /><span>Model isolation<small>Connector secrets stay outside Gemini</small></span><CheckCircle2 /></div>
             <div><Clock3 /><span>Short leases<small>Automatic expiry enabled</small></span><CheckCircle2 /></div>
-            <div><UserCheck /><span>Owner control<small>High-risk writes require you</small></span><CheckCircle2 /></div>
+            <div><UserCheck /><span>Write boundary<small>Production writes remain disabled</small></span><CheckCircle2 /></div>
           </div>
 
           <div className="guardrail-card">
@@ -320,7 +323,7 @@ export default function Home() {
               <div className="mission-summary" aria-live="polite">
                 <div>
                   <span>{runState === "idle" ? "READY" : runState === "approval" ? "WAITING FOR YOU" : runState.toUpperCase()}</span>
-                  <strong>{runState === "complete" ? "Closeout package ready" : runState === "approval" ? "Final write held safely" : runState === "stopped" ? "Mission stopped; leases revoked" : running ? STEPS[cursor]?.title : "No credentials loaded"}</strong>
+                  <strong>{runState === "complete" ? "Sandbox proof recorded" : runState === "approval" ? "Final write held safely" : runState === "stopped" ? "UI stopped; verify remote state" : running ? STEPS[cursor]?.title : "No credentials loaded"}</strong>
                 </div>
                 <div className="progress-wrap"><span>{progress}%</span><Progress value={progress} /></div>
               </div>
@@ -351,12 +354,12 @@ export default function Home() {
                 <div className="result-card">
                   <div className="result-icon"><FileCheck2 /></div>
                   <div>
-                    <span>MISSION COMPLETE</span>
-                    <h2>Johnson remodel closeout is ready.</h2>
+                    <span>SANDBOX PROOF COMPLETE</span>
+                    <h2>Johnson remodel closeout preview is ready.</h2>
                     <p>3 receipts matched · 18 time entries verified · 1 discrepancy flagged · 0 secrets exposed</p>
                     {agentSummary && <p className="agent-summary">{agentSummary}</p>}
                   </div>
-                  <Badge className="proof-badge"><ShieldCheck /> Audit proof</Badge>
+                  <Badge className="proof-badge"><ShieldCheck /> Simulated audit receipt</Badge>
                 </div>
               )}
             </TabsContent>
@@ -384,8 +387,8 @@ export default function Home() {
 
             <TabsContent value="audit" className="tab-content">
               <div className="section-intro">
-                <div><p className="eyebrow"><FileCheck2 /> REDACTED AUDIT PROOF</p><h2>Every bite leaves a receipt.</h2></div>
-                <Badge variant="outline"><Clock3 /> Seeded proof</Badge>
+                <div><p className="eyebrow"><FileCheck2 /> SEEDED AUDIT PREVIEW</p><h2>Every simulated action leaves a receipt.</h2></div>
+                <Badge variant="outline"><Clock3 /> Sandbox fixture</Badge>
               </div>
               <div className="audit-table-wrap">
                 <table className="audit-table">

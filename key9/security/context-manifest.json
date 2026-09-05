@@ -1,0 +1,52 @@
+{
+  "schema": "key9.context-manifest.v1",
+  "status": "explicit-inventory-not-automated-discovery",
+  "sources": [
+    {
+      "id": "root_instruction",
+      "origin": "agent-service/agents/key9_agent/agent.py:KEY9_INSTRUCTION",
+      "trust": "developer_controlled",
+      "role": "system",
+      "scope": "process",
+      "mutable_by_agent": false,
+      "executable": false
+    },
+    {
+      "id": "user_goal",
+      "origin": "authenticated ADK run request",
+      "trust": "untrusted_user_input",
+      "role": "user",
+      "scope": "session",
+      "mutable_by_agent": false,
+      "executable": false
+    },
+    {
+      "id": "tool_result",
+      "origin": "allowlisted KEY-9 connector functions",
+      "trust": "trusted_envelope_with_untrusted_fields",
+      "role": "tool",
+      "scope": "session",
+      "mutable_by_agent": false,
+      "executable": false
+    },
+    {
+      "id": "session_state",
+      "origin": "KEY9_SESSION_URI",
+      "trust": "deployment_controlled",
+      "role": "state",
+      "scope": "session_or_persistent_store",
+      "mutable_by_agent": true,
+      "executable": false,
+      "production_requirement": "persistent_store_required"
+    }
+  ],
+  "prohibited_implicit_sources": [
+    "repository_instruction_files",
+    "third_party_skill_directories",
+    "git_commit_metadata",
+    "shell_profile_files",
+    "host_environment_values_in_model_context",
+    "user_wide_memory_written_from_tool_output"
+  ],
+  "acs_alignment": "preview-shaped-not-conformance-tested"
+}

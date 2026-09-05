@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import secrets
+import threading
 import time
 from typing import Iterable, Mapping
 from urllib.parse import urlparse
@@ -79,10 +80,17 @@ DEFAULT_POLICY: Mapping[str, PolicyRule] = {
 }
 
 
-def _normalize_host(target: str) -> str:
+def normalize_target_host(target: str) -> str:
+    """Return the canonical HTTPS host used for policy and lease binding."""
     value = target.strip().lower()
     parsed = urlparse(value if "://" in value else f"https://{value}")
     if parsed.scheme != "https" or not parsed.hostname:
+        return ""
+    try:
+        port = parsed.port
+    except ValueError:
+        return ""
+    if parsed.username or parsed.password or port not in {None, 443}:
         return ""
     try:
         return parsed.hostname.encode("idna").decode("ascii").rstrip(".")
@@ -109,7 +117,7 @@ class PolicyEngine:
         if rule is None:
             return PolicyDecision(False, "unknown_secret_alias")
 
-        target_host = _normalize_host(target)
+        target_host = normalize_target_host(target)
         if not target_host or target_host != rule.target_host:
             return PolicyDecision(False, "target_not_allowlisted")
 
@@ -131,9 +139,10 @@ class PolicyEngine:
 
 @dataclass
 class LeaseStore:
-    """Process-local lease registry. Production persistence can use Firestore."""
+    """Thread-safe process-local lease registry for sandbox use only."""
 
     _leases: dict[str, CredentialLease] = field(default_factory=dict)
+    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def issue(
         self,
@@ -150,27 +159,46 @@ class LeaseStore:
         lease = CredentialLease(
             lease_id=f"k9l_{secrets.token_urlsafe(18)}",
             alias=alias,
-            target_host=_normalize_host(target),
-            scopes=frozenset(scopes),
+            target_host=normalize_target_host(target),
+            scopes=frozenset(scope.strip().lower() for scope in scopes),
             expires_at=time.time() + decision.ttl_seconds,
             approved=owner_approved,
         )
-        self._leases[lease.lease_id] = lease
+        with self._lock:
+            self._leases[lease.lease_id] = lease
         return lease
 
     def validate(self, lease_id: str) -> CredentialLease:
-        lease = self._leases.get(lease_id)
+        with self._lock:
+            lease = self._leases.get(lease_id)
         if lease is None:
             raise PermissionError("lease_not_found")
         if lease.expired:
-            self._leases.pop(lease_id, None)
+            with self._lock:
+                self._leases.pop(lease_id, None)
+            raise PermissionError("lease_expired")
+        return lease
+
+    def consume(self, lease_id: str) -> CredentialLease:
+        """Atomically remove and return a lease before any secret retrieval.
+
+        Consumption is intentionally irreversible. A target mismatch, provider
+        outage, or connector exception cannot leave reusable authority behind.
+        """
+        with self._lock:
+            lease = self._leases.pop(lease_id, None)
+        if lease is None:
+            raise PermissionError("lease_not_found")
+        if lease.expired:
             raise PermissionError("lease_expired")
         return lease
 
     def revoke(self, lease_id: str) -> bool:
-        return self._leases.pop(lease_id, None) is not None
+        with self._lock:
+            return self._leases.pop(lease_id, None) is not None
 
     def revoke_all(self) -> int:
-        count = len(self._leases)
-        self._leases.clear()
+        with self._lock:
+            count = len(self._leases)
+            self._leases.clear()
         return count

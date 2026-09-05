@@ -33,10 +33,10 @@ KEY-9 separates **reasoning** from **identity**:
 2. Gemini plans the work and chooses allowlisted tools.
 3. The policy engine validates the credential alias, exact target, requested
    scopes, time-to-live, and approval state.
-4. A server-only approval boundary—not the model—authorizes consequential writes.
-5. The broker retrieves the secret only at the connector boundary.
-6. The connector performs the action and returns a redacted result.
-7. The lease is revoked and an audit receipt is recorded.
+4. Consequential writes stop at an approval boundary the model cannot call.
+5. The broker atomically consumes a one-use lease before retrieving a secret.
+6. The connector performs one scoped action and returns a recursively redacted result.
+7. A unique, evidence-labeled audit receipt records what the connector reported.
 
 The model sees the outcome. It never sees the secret.
 
@@ -54,10 +54,12 @@ KEY-9 then:
 - collects three receipt records through the `drive.receipts` alias;
 - reconciles the receipt total against the material ledger;
 - surfaces an $86.42 mismatch instead of hiding it;
-- prepares a reversible accounting export; and
-- holds the consequential external write until owner approval.
+- prepares an accounting-export preview; and
+- holds the consequential external write while the public approval control records
+  only a local sandbox simulation.
 
-The public demonstration never stores or accepts real credentials.
+The public demonstration never stores or accepts real credentials and cannot
+relay an owner-approval call to the agent service.
 
 ## Architecture
 
@@ -88,11 +90,20 @@ by the model.
 - **No disclosure scopes:** `secret:reveal`, `password:show`, and similar
   requests are always denied, even if a broader policy is added accidentally.
 - **Short leases:** every credential use receives a capped expiry.
-- **Single use:** a successful broker invocation revokes its lease immediately.
-- **Owner approval:** accounting writes remain held until the private server bridge receives a human approval action; the model-facing tool has no approval parameter.
+- **Single use:** invocation atomically and irreversibly consumes the lease before
+  target validation, provider access, or connector execution—even on failure.
+- **Invocation target binding:** the connector target is rechecked against the
+  canonical host captured in the lease.
+- **Owner approval:** the model-facing tool has no approval parameter; the public
+  demo can only simulate approval, and production writes remain disabled until an
+  authenticated owner-only flow exists.
 - **Fail closed:** unknown alias, target, scope, lease, or state means no action.
-- **Redacted output:** known secrets and common credential shapes are removed
-  before results can reach the model or logs.
+- **Redacted output:** nested values, keys, bytes, escaped strings, known secrets,
+  and common credential shapes are scrubbed before serialization or model access.
+- **Production state guard:** process-local ADK sessions are rejected when sandbox
+  mode is disabled.
+- **Explicit context and hook policy:** accepted context sources are inventoried;
+  implicit repository instructions and application-defined lifecycle hooks are denied.
 - **Sandbox first:** the hosted contest UI uses non-sensitive seeded records.
 
 See [`docs/SECURITY_MODEL.md`](docs/SECURITY_MODEL.md) for the threat model.
@@ -106,8 +117,10 @@ app/
 agent-service/
   agents/key9_agent/agent.py  Gemini 3.5 Google ADK agent and tools
   key9_core/policy.py         Exact-target, scope, approval, and TTL checks
-  key9_core/broker.py         Late secret injection and immediate revocation
-  key9_core/redaction.py      Model/log output redaction
+  key9_core/broker.py         Consume-before-use secret injection
+  key9_core/redaction.py      Recursive pre-serialization redaction
+  key9_core/audit.py          Dynamic, evidence-labeled audit receipts
+  key9_core/evidence.py       Authorized scan/patch evidence gate
   key9_core/workflow.py       Reproducible Watch-Dawg closeout tools
   tests/                      Security regression tests
   Dockerfile                 Cloud Run image
@@ -116,6 +129,9 @@ docs/
   DEMO_SCRIPT.md              Four-minute unedited demo plan
   DEVPOST_SUBMISSION.md       Submission-ready project copy
   SECURITY_MODEL.md           Assets, threats, controls, limitations
+security/
+  context-manifest.json       Context origin, trust, role, and lifetime policy
+  lifecycle-hook-policy.json  Default-deny executable hook policy
 scripts/
   bootstrap-contest-cloud.sh One-command contest Cloud setup
   deploy-cloud-run.sh         Reproducible Google Cloud deployment
@@ -130,7 +146,7 @@ Requirements:
 - npm
 
 ```bash
-npm install
+npm ci --ignore-scripts
 npm run dev
 ```
 
@@ -180,10 +196,13 @@ export GOOGLE_CLOUD_RUN_REGION="us-central1"
 export GOOGLE_CLOUD_LOCATION="global"
 export KEY9_GEMINI_MODEL="gemini-3.5-flash"
 export KEY9_BRIDGE_SECRET="key9-bridge-token"
+export KEY9_SANDBOX_DEPLOY=true
 ./scripts/deploy-cloud-run.sh
 ```
 
-The script enables the required APIs and deploys `agent-service/` to Cloud Run.
+The script enables the required APIs and deploys `agent-service/` as a
+**publicly reachable, token-gated synthetic sandbox**. It refuses to run unless
+that sandbox-only choice is explicit. It is not the production deployment path.
 Before running it, create the named Secret Manager secret and grant the Cloud
 Run service account access to that one secret. After deployment, set the
 server-only `KEY9_AGENT_URL` and `KEY9_AGENT_TOKEN` values for the web console.
@@ -200,7 +219,7 @@ bash ./scripts/bootstrap-contest-cloud.sh
 ```
 
 Cloud Run stays in `us-central1`, while Gemini 3.5 Flash uses Vertex AI's
-`global` location. The bootstrap writes the Site bridge URL and private token
+`global` location. The bootstrap writes the Site bridge URL and server-only token
 to `key9-sites-env.txt`; add those two values directly to the Site production
 environment and never commit or share that file.
 
@@ -232,7 +251,7 @@ curl -X POST \
   -H "x-key9-bridge-token: $KEY9_AGENT_TOKEN" \
   -d '{"sandbox": true}'
 
-curl -X POST "$KEY9_AGENT_URL/run_sse" \
+curl -X POST "$KEY9_AGENT_URL/run" \
   -H "content-type: application/json" \
   -H "x-key9-bridge-token: $KEY9_AGENT_TOKEN" \
   -d '{
@@ -253,22 +272,37 @@ curl -X POST "$KEY9_AGENT_URL/run_sse" \
 
 - Web lint: passing
 - Web production build: passing
-- Policy/broker/workflow regression tests: **14/14 passing**
+- Policy, broker, workflow, evidence-gate, and trust-boundary tests: **30/30 passing**
 - ADK server import: passing with `google-adk 2.8.0`
 - ADK discovery: returns only `key9_agent`
 - `/v1/health`: passing
 - `/v1/security-posture`: passing
 
-The Gemini-backed Cloud Run execution is the remaining environment-dependent
-verification. The UI identifies sandbox mode until that deployment is connected.
+The Gemini-backed Cloud Run execution remains environment-dependent. The UI
+identifies sandbox mode until that deployment is connected, and its approval
+button never calls the Cloud Run approval endpoint.
 
 ## Honest limitations
 
 - The contest demo uses seeded Watch-Dawg, receipt, and accounting records.
-- The accounting connector prepares a sandbox export; it does not modify a
-  real QuickBooks account.
-- The current deployment uses in-memory ADK sessions. Firestore or Agent
-  Runtime memory is required before persistent personal use.
+- The accounting connector prepares a sandbox preview; it does not modify a
+  real QuickBooks account. The public approval control is simulation-only.
+- Private Cloud Run IAM, workload identity for the server bridge, and
+  authenticated owner approval are not implemented. The supplied deployment
+  script is deliberately restricted to an explicitly selected public sandbox.
+- Sandbox runs may use in-memory ADK sessions. Non-sandbox startup rejects
+  `memory://`; a supported persistent session service must be configured and
+  operationally tested before personal use.
+- Audit receipts are dynamic and digest-bound, but remain process-local events;
+  durable append-only storage, signing, and independent verification are absent.
+- The Agent Control Standard mapping is preview-shaped metadata only. It is not
+  conformance-tested.
+- The context manifest and lifecycle-hook policy are checked repository
+  contracts, not a complete runtime context-taint or hook-enforcement engine.
+- The scan/patch evidence gate evaluates supplied lab evidence; it does not
+  scan targets, execute exploits, generate patches, or approve releases.
+- Stopping the web animation does not prove cancellation of an in-flight remote
+  ADK run; server-side cancellation and status reconciliation remain future work.
 - KEY-9 is not yet an Android Credential Provider, VPN, or general browser
   autofill replacement.
 - This is a security architecture prototype, not an audited password manager.

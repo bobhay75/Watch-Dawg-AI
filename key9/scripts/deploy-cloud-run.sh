@@ -10,6 +10,13 @@ KEY9_SERVICE="${KEY9_CLOUD_RUN_SERVICE:-watch-dawg-key9-agent}"
 KEY9_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KEY9_AGENT_DIR="${KEY9_SCRIPT_DIR}/../agent-service"
 
+if [[ "${KEY9_SANDBOX_DEPLOY:-false}" != "true" ]]; then
+  echo "This script creates a publicly reachable, token-gated sandbox service." >&2
+  echo "Set KEY9_SANDBOX_DEPLOY=true only for synthetic demo data." >&2
+  echo "Production requires private Cloud Run IAM and an authenticated owner approval flow." >&2
+  exit 2
+fi
+
 if [[ ! "${GOOGLE_CLOUD_PROJECT}" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]]; then
   echo "GOOGLE_CLOUD_PROJECT is not a valid project ID" >&2
   exit 2

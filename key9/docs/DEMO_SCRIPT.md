@@ -41,8 +41,9 @@ financial write.
 Click **Approve sandbox export**.
 
 “The owner makes the consequential decision. KEY-9 completes the sandbox export
-and returns redacted audit proof: three receipts, 18 time entries, one
-discrepancy, and zero secrets exposed. No real accounting system is modified.”
+simulation locally and returns a redacted receipt: three receipts, 18 time
+entries, one discrepancy, and zero secrets exposed. The public control never
+calls a connector or modifies an accounting system.”
 
 ## 2:40–3:05 — Blocked attack
 
@@ -59,7 +60,9 @@ Cloud Console.
 
 “The agent runs on Cloud Run with Google ADK and Gemini 3.5. Secret Manager is
 behind the broker boundary. The public contest flow uses only seeded data, and
-the repository contains ten security regression tests and reproducible setup.”
+the repository contains 30 security regression tests and reproducible setup.
+The deployed service is a public, token-gated sandbox—not the production
+private-IAM design.”
 
 ## 3:32–3:40 — Close
 
