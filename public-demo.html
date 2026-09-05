@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Watch-Dawg + KEY-9: auditable business-loss detection with protected AI authorization and human approval.">
+<title>Watch-Dawg + KEY-9 | Detect. Authorize. Verify.</title>
+<style>
+:root{--bg:#080b0f;--panel:#111720;--line:#263241;--text:#f7fbff;--muted:#9fb0c3;--cyan:#46d9ff;--green:#4dff9a;--amber:#ffd166;--red:#ff6b6b}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 80% 0,#102637 0,transparent 34%),var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif}.wrap{width:min(1180px,calc(100% - 28px));margin:auto;padding:26px 0 64px}.top{display:flex;justify-content:space-between;gap:18px;align-items:center;padding:8px 0 28px}.brand{font-weight:900;letter-spacing:.08em}.brand span{color:var(--cyan)}.badge{border:1px solid var(--line);padding:8px 11px;color:var(--muted);font:700 11px ui-monospace,monospace}.hero{display:grid;grid-template-columns:1.25fr .75fr;gap:18px}.card{background:linear-gradient(180deg,rgba(20,28,38,.96),rgba(11,16,23,.96));border:1px solid var(--line);padding:24px}.hero .card{padding:34px}h1{font-size:clamp(42px,7vw,82px);line-height:.92;margin:8px 0 20px;letter-spacing:-.06em}h2{margin:0 0 14px;font-size:24px}h3{margin:0 0 8px;font-size:16px}.kicker,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.kicker{color:var(--cyan);font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}p{color:var(--muted);line-height:1.6}.hero p{font-size:18px;max-width:720px}.cta{display:flex;flex-wrap:wrap;gap:10px;margin-top:24px}button{border:1px solid var(--line);background:#0b1118;color:var(--text);padding:12px 15px;font-weight:800;cursor:pointer}button.primary{background:var(--cyan);color:#021118;border-color:var(--cyan)}button:hover{transform:translateY(-1px)}.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:18px}.step{min-height:150px}.n{font:900 30px ui-monospace,monospace;color:var(--cyan)}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}.status{display:inline-block;padding:6px 9px;border:1px solid var(--line);font:800 11px ui-monospace,monospace}.review{color:var(--red);border-color:#713434}.ok{color:var(--green);border-color:#2b6b49}.pending{color:var(--amber);border-color:#6f5d2d}.console{background:#030608;border:1px solid #243040;padding:16px;min-height:260px;white-space:pre-wrap;font:13px/1.62 ui-monospace,monospace;color:#dcecff}.flow{display:grid;gap:10px}.flowrow{display:grid;grid-template-columns:128px 1fr auto;gap:12px;align-items:center;border:1px solid var(--line);padding:12px;background:#0a1017}.flowrow strong{font-size:13px}.metric{font:900 42px ui-monospace,monospace}.small{font-size:12px;color:var(--muted)}.proof{border-left:3px solid var(--green);padding-left:14px}.notice{margin-top:18px;border:1px dashed #46586c;padding:14px;color:var(--muted);font-size:13px}.footer{margin-top:18px;color:#718398;font-size:12px;text-align:center}@media(max-width:850px){.hero,.grid,.steps{grid-template-columns:1fr}.flowrow{grid-template-columns:1fr}.hero .card{padding:24px}h1{font-size:50px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top"><div class="brand">WATCH-DAWG <span>+ KEY-9</span></div><div class="badge">PUBLIC DETERMINISTIC DEMO</div></div>
+  <section class="hero">
+    <div class="card">
+      <div class="kicker">Detect loss · Control AI · Prove what happened</div>
+      <h1>AI that checks before it acts.</h1>
+      <p>Watch-Dawg detects financial and operational anomalies. KEY-9 then gates any protected AI action through policy, human approval when required, and redacted proof—without exposing the credential to the agent.</p>
+      <div class="cta"><button class="primary" id="runDemo">Run the 60-second demo</button><button id="resetDemo">Reset</button></div>
+    </div>
+    <div class="card">
+      <div class="kicker">Current public surface</div>
+      <p><strong>Safe by design.</strong> This page demonstrates deterministic audit and authorization logic only. No production credential is embedded here, and no real financial record is changed.</p>
+      <div class="metric" id="score">100</div><div class="small">DAWG HEALTH SCORE</div>
+      <p id="headline">Load the anomaly scenario to begin.</p>
+    </div>
+  </section>
+
+  <section class="steps">
+    <div class="card step"><div class="n">01</div><h3>Detect</h3><p>Reconcile transaction math and surface the exact anomaly.</p></div>
+    <div class="card step"><div class="n">02</div><h3>Authorize</h3><p>KEY-9 evaluates whether the requested AI action is allowed.</p></div>
+    <div class="card step"><div class="n">03</div><h3>Approve</h3><p>Sensitive actions stop for a human decision instead of silently executing.</p></div>
+    <div class="card step"><div class="n">04</div><h3>Verify</h3><p>Record a redacted proof trail showing the decision and result.</p></div>
+  </section>
+
+  <section class="grid">
+    <div class="card">
+      <div class="kicker">Watch-Dawg audit</div><h2>What went wrong?</h2>
+      <div class="console" id="auditOut">READY\nWaiting for deterministic ledger scan…</div>
+    </div>
+    <div class="card">
+      <div class="kicker">KEY-9 authorization boundary</div><h2>Should AI be allowed to act?</h2>
+      <div class="flow">
+        <div class="flowrow"><strong>Agent request</strong><span>Correct flagged allocation record</span><span class="status pending" id="s1">WAITING</span></div>
+        <div class="flowrow"><strong>Policy gate</strong><span>Write action touches protected business data</span><span class="status pending" id="s2">WAITING</span></div>
+        <div class="flowrow"><strong>Human approval</strong><span>Owner retains final authority</span><span class="status pending" id="s3">WAITING</span></div>
+        <div class="flowrow"><strong>Execution</strong><span>Credential stays isolated from agent</span><span class="status pending" id="s4">WAITING</span></div>
+      </div>
+      <div class="cta"><button id="approve" disabled>Approve protected action</button></div>
+    </div>
+  </section>
+
+  <section class="grid">
+    <div class="card"><div class="kicker">Redacted proof</div><h2>Human-readable evidence</h2><div class="console proof" id="proof">NO PROOF YET\nRun the demo, then approve the protected action.</div></div>
+    <div class="card"><div class="kicker">Why this matters</div><h2>One trust loop</h2><p><strong>Watch-Dawg detects.</strong> <strong>KEY-9 controls authorization.</strong> The human decides when the risk boundary is crossed. The system records what happened without revealing the secret used to perform the action.</p><div class="notice">Demo boundary: the authorization sequence on this public static page is a deterministic simulation of the KEY-9 control model. Production KEY-9 runs as an isolated broker/policy service and should never ship credentials into browser code.</div></div>
+  </section>
+  <div class="footer">Watch-Dawg + KEY-9 · auditable, human-controlled AI operations</div>
+</div>
+<script type="module">
+import { sampleScenarios, runWatchDawg } from './watchdawg.js';
+const $=id=>document.getElementById(id); let last=null;
+function setStatus(id,text,kind){const e=$(id);e.textContent=text;e.className='status '+kind}
+function reset(){last=null;$('score').textContent='100';$('headline').textContent='Load the anomaly scenario to begin.';$('auditOut').textContent='READY\nWaiting for deterministic ledger scan…';$('proof').textContent='NO PROOF YET\nRun the demo, then approve the protected action.';['s1','s2','s3','s4'].forEach(x=>setStatus(x,'WAITING','pending'));$('approve').disabled=true}
+function run(){last=runWatchDawg(sampleScenarios.anomaly);$('score').textContent=String(last.score);$('headline').textContent=last.status==='REVIEW'?'Loss-control review required.':'No anomalies detected.';$('auditOut').textContent=last.report+'\n\nNEXT ACTION\nRequest protected correction through KEY-9.';setStatus('s1','REQUESTED','review');setStatus('s2','REQUIRES APPROVAL','review');setStatus('s3','PENDING HUMAN','pending');setStatus('s4','BLOCKED','pending');$('approve').disabled=false}
+function approve(){if(!last)return;setStatus('s3','APPROVED','ok');setStatus('s4','SAFE EXECUTION','ok');$('proof').textContent=['KEY-9 REDACTED AUDIT PROOF','decision: APPROVED_BY_HUMAN','policy: protected-write / approval-required','credential_exposed_to_agent: false','execution: simulated-safe-action','watch_dawg_verdict_before_action: '+last.status,'dawg_score_before_action: '+last.score,'result: action authorized; secret remained isolated'].join('\n');$('approve').disabled=true}
+$('runDemo').addEventListener('click',run);$('resetDemo').addEventListener('click',reset);$('approve').addEventListener('click',approve);reset();
+</script>
+</body>
+</html>
