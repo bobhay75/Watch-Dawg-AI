@@ -65,9 +65,9 @@ class SitemapWatchPack:
 
         if root_type == "sitemapindex":
             for child_url in root_locations[:max_sitemaps]:
-                validate_public_http_url(child_url)
                 if not _same_origin(sitemap_url, child_url):
                     continue
+                validate_public_http_url(child_url)
                 child = self.fetcher.fetch(child_url, timeout, max_xml_bytes)
                 child_body = str(child.pop("body"))
                 sitemap_statuses[child_url] = int(child["status"])
@@ -85,10 +85,10 @@ class SitemapWatchPack:
         normalized_urls = []
         skipped_cross_origin = []
         for page_url in page_urls:
-            validate_public_http_url(page_url)
             if not _same_origin(sitemap_url, page_url):
                 skipped_cross_origin.append(page_url)
                 continue
+            validate_public_http_url(page_url)
             if page_url not in normalized_urls:
                 normalized_urls.append(page_url)
             if len(normalized_urls) >= max_urls:
