@@ -1,6 +1,20 @@
 {
   "targets": [
     {
+      "id": "black-oak-domain-health",
+      "kind": "dns_tls",
+      "hostname": "blackoakamp.com",
+      "authorization": {
+        "mode": "public",
+        "note": "Passive DNS and TLS monitoring of the public venue domain"
+      },
+      "checks": {
+        "tls_expiry_warning_days": 30,
+        "tls_expiry_critical_days": 7,
+        "minimum_tls_version": "TLSv1.2"
+      }
+    },
+    {
       "id": "black-oak-big-rich",
       "kind": "http",
       "url": "https://blackoakamp.com/event/big-rich-9-11-25th-anniversary-with-craig-morgan/black-oak-amphitheater/lampe/",
@@ -49,4 +63,3 @@
     }
   ]
 }
-
