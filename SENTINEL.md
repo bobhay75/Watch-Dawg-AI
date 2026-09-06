@@ -16,7 +16,7 @@ It does not promise to watch literally everything. It can watch nearly any obser
 - configured response headers;
 - JSON-LD event Offer prices, including the Black Oak zero-price defect.
 
-The public fetcher performs one bounded request per configured target. It does not crawl, scan ports, submit forms, bypass access controls, or accept private, loopback, link-local, or reserved network targets.
+The public fetcher performs one bounded request per configured target. It does not scan ports, submit forms, bypass access controls, or accept private, loopback, link-local, or reserved network targets.
 
 ### DNS and TLS pack
 
@@ -26,6 +26,16 @@ The public fetcher performs one bounded request per configured target. It does n
 - certificate subject, issuer, and expiry evidence.
 
 The domain pack accepts only plain public hostnames, performs one DNS resolution and one ordinary TLS handshake, rejects non-public addresses, and treats DNS changes as one-time events rather than permanent alarms.
+
+### Sitemap integrity pack
+
+- XML sitemap and one-level sitemap-index parsing;
+- bounded same-origin landing-page availability checks;
+- broken URL and off-origin redirect detection;
+- minimum URL-count checks;
+- one-time URL-set change alerts without false recoveries.
+
+The pack has explicit limits of at most 10 child sitemaps and 100 page URLs. It validates each public URL before fetching and never follows cross-origin sitemap entries.
 
 ### Owned traffic-log pack
 
@@ -44,7 +54,7 @@ Every finding has a stable fingerprint, severity, evidence, and one of two truth
 - `VERIFIED`: directly observed by a deterministic check;
 - `INFERENCE`: an interpretation supported by observed evidence.
 
-The state store remembers persistent findings. It emits those only when they are new or resolved. One-time changes such as a new page fingerprint or DNS address set are emitted as events and do not create a fake recovery on the next run. The DAWG score is a review-priority signal, not a legal, financial, or security verdict.
+The state store remembers persistent findings. It emits those only when they are new or resolved. One-time changes such as a new page fingerprint, DNS address set, or sitemap URL set are emitted as events and do not create a fake recovery on the next run. The DAWG score is a review-priority signal, not a legal, financial, or security verdict.
 
 ## Authorization boundary
 
@@ -85,10 +95,9 @@ python -m unittest discover -s sentinel/tests -v
 The core accepts additional watch packs without changing its alert contract. Next packs should be built in this order:
 
 1. analytics pack for authorized Search Console, GA4, ad-platform, and ticketing data;
-2. sitemap and bounded broken-link integrity pack;
-3. repository, CI, dependency, and deployment-health pack;
-4. owner-installed host agent for process, disk, auth, firewall, and endpoint events;
-5. public promotion, review, competitor, event, pricing, and reputation pack;
-6. KEY-9-controlled response actions with human approval and redacted receipts.
+2. repository, CI, dependency, and deployment-health pack;
+3. owner-installed host agent for process, disk, auth, firewall, and endpoint events;
+4. public promotion, review, competitor, event, pricing, and reputation pack;
+5. KEY-9-controlled response actions with human approval and redacted receipts.
 
 The safe product promise is: **Watch-Dawg can watch any authorized signal that a pack can observe, prove what changed, suppress repeat noise, and put the decision in human hands.**
