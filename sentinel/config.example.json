@@ -31,6 +31,20 @@
       }
     },
     {
+      "id": "public-sitemap",
+      "kind": "sitemap",
+      "url": "https://example.com/sitemap.xml",
+      "max_sitemaps": 3,
+      "max_urls": 25,
+      "authorization": {
+        "mode": "public",
+        "note": "Bounded same-origin sitemap integrity monitoring"
+      },
+      "checks": {
+        "minimum_urls": 1
+      }
+    },
+    {
       "id": "owned-nginx-traffic",
       "kind": "access_log",
       "path": "access.log",
