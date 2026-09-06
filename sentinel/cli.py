@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .core import SentinelEngine, StateStore
+from .domain_watch import DnsTlsWatchPack
 from .http_watch import HttpWatchPack
 from .log_watch import AccessLogWatchPack
 
@@ -31,7 +32,7 @@ def main() -> int:
     log_root = Path(config.get("log_root", "."))
     engine = SentinelEngine(
         StateStore(args.state),
-        [HttpWatchPack(), AccessLogWatchPack(log_root)],
+        [HttpWatchPack(), DnsTlsWatchPack(), AccessLogWatchPack(log_root)],
     )
     result = engine.run(config["targets"])
     print(json.dumps(result, indent=2, sort_keys=True))
@@ -40,4 +41,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
