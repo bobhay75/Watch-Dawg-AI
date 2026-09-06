@@ -18,6 +18,15 @@ It does not promise to watch literally everything. It can watch nearly any obser
 
 The public fetcher performs one bounded request per configured target. It does not crawl, scan ports, submit forms, bypass access controls, or accept private, loopback, link-local, or reserved network targets.
 
+### DNS and TLS pack
+
+- public DNS resolution and address-set changes;
+- TLS certificate expiry warning and critical windows;
+- negotiated TLS-version policy;
+- certificate subject, issuer, and expiry evidence.
+
+The domain pack accepts only plain public hostnames, performs one DNS resolution and one ordinary TLS handshake, rejects non-public addresses, and treats DNS changes as one-time events rather than permanent alarms.
+
 ### Owned traffic-log pack
 
 - 5xx error-rate threshold;
@@ -35,7 +44,7 @@ Every finding has a stable fingerprint, severity, evidence, and one of two truth
 - `VERIFIED`: directly observed by a deterministic check;
 - `INFERENCE`: an interpretation supported by observed evidence.
 
-The state store remembers persistent findings. It emits those only when they are new or resolved. One-time changes such as a new page fingerprint are emitted as events and do not create a fake recovery on the next run. The DAWG score is a review-priority signal, not a legal, financial, or security verdict.
+The state store remembers persistent findings. It emits those only when they are new or resolved. One-time changes such as a new page fingerprint or DNS address set are emitted as events and do not create a fake recovery on the next run. The DAWG score is a review-priority signal, not a legal, financial, or security verdict.
 
 ## Authorization boundary
 
@@ -76,7 +85,7 @@ python -m unittest discover -s sentinel/tests -v
 The core accepts additional watch packs without changing its alert contract. Next packs should be built in this order:
 
 1. analytics pack for authorized Search Console, GA4, ad-platform, and ticketing data;
-2. uptime, DNS, TLS-expiry, broken-link, sitemap, and structured-data pack;
+2. sitemap and bounded broken-link integrity pack;
 3. repository, CI, dependency, and deployment-health pack;
 4. owner-installed host agent for process, disk, auth, firewall, and endpoint events;
 5. public promotion, review, competitor, event, pricing, and reputation pack;
