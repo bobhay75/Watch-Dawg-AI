@@ -17,6 +17,20 @@
       }
     },
     {
+      "id": "public-domain",
+      "kind": "dns_tls",
+      "hostname": "example.com",
+      "authorization": {
+        "mode": "public",
+        "note": "Passive DNS and TLS observation of a public hostname"
+      },
+      "checks": {
+        "tls_expiry_warning_days": 30,
+        "tls_expiry_critical_days": 7,
+        "minimum_tls_version": "TLSv1.2"
+      }
+    },
+    {
       "id": "owned-nginx-traffic",
       "kind": "access_log",
       "path": "access.log",
@@ -33,4 +47,3 @@
     }
   ]
 }
-
