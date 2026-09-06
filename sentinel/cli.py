@@ -9,6 +9,7 @@ from .core import SentinelEngine, StateStore
 from .domain_watch import DnsTlsWatchPack
 from .http_watch import HttpWatchPack
 from .log_watch import AccessLogWatchPack
+from .sitemap_watch import SitemapWatchPack
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -32,7 +33,12 @@ def main() -> int:
     log_root = Path(config.get("log_root", "."))
     engine = SentinelEngine(
         StateStore(args.state),
-        [HttpWatchPack(), DnsTlsWatchPack(), AccessLogWatchPack(log_root)],
+        [
+            HttpWatchPack(),
+            DnsTlsWatchPack(),
+            SitemapWatchPack(),
+            AccessLogWatchPack(log_root),
+        ],
     )
     result = engine.run(config["targets"])
     print(json.dumps(result, indent=2, sort_keys=True))
