@@ -1,0 +1,36 @@
+{
+  "log_root": "/var/log/nginx",
+  "targets": [
+    {
+      "id": "public-homepage",
+      "kind": "http",
+      "url": "https://example.com/",
+      "authorization": {
+        "mode": "public",
+        "note": "Passive observation of a public webpage"
+      },
+      "checks": {
+        "allowed_statuses": [200],
+        "contains": ["Example Domain"],
+        "max_latency_ms": 2500,
+        "track_content": true
+      }
+    },
+    {
+      "id": "owned-nginx-traffic",
+      "kind": "access_log",
+      "path": "access.log",
+      "authorization": {
+        "mode": "owner",
+        "note": "Log belongs to the system owner"
+      },
+      "checks": {
+        "max_5xx_rate": 0.05,
+        "max_auth_failures": 20,
+        "max_suspicious_hits": 0,
+        "traffic_spike_multiplier": 3
+      }
+    }
+  ]
+}
+
