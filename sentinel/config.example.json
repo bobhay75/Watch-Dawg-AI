@@ -1,0 +1,63 @@
+{
+  "log_root": "/var/log/nginx",
+  "targets": [
+    {
+      "id": "public-homepage",
+      "kind": "http",
+      "url": "https://example.com/",
+      "authorization": {
+        "mode": "public",
+        "note": "Passive observation of a public webpage"
+      },
+      "checks": {
+        "allowed_statuses": [200],
+        "contains": ["Example Domain"],
+        "max_latency_ms": 2500,
+        "track_content": true
+      }
+    },
+    {
+      "id": "public-domain",
+      "kind": "dns_tls",
+      "hostname": "example.com",
+      "authorization": {
+        "mode": "public",
+        "note": "Passive DNS and TLS observation of a public hostname"
+      },
+      "checks": {
+        "tls_expiry_warning_days": 30,
+        "tls_expiry_critical_days": 7,
+        "minimum_tls_version": "TLSv1.2"
+      }
+    },
+    {
+      "id": "public-sitemap",
+      "kind": "sitemap",
+      "url": "https://example.com/sitemap.xml",
+      "max_sitemaps": 3,
+      "max_urls": 25,
+      "authorization": {
+        "mode": "public",
+        "note": "Bounded same-origin sitemap integrity monitoring"
+      },
+      "checks": {
+        "minimum_urls": 1
+      }
+    },
+    {
+      "id": "owned-nginx-traffic",
+      "kind": "access_log",
+      "path": "access.log",
+      "authorization": {
+        "mode": "owner",
+        "note": "Log belongs to the system owner"
+      },
+      "checks": {
+        "max_5xx_rate": 0.05,
+        "max_auth_failures": 20,
+        "max_suspicious_hits": 0,
+        "traffic_spike_multiplier": 3
+      }
+    }
+  ]
+}
