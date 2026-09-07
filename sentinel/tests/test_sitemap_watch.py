@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import socket
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from sentinel.core import SentinelEngine, StateStore
 from sentinel.sitemap_watch import SitemapWatchPack
@@ -36,6 +38,16 @@ class FakeFetcher:
 
 
 class SitemapWatchTests(unittest.TestCase):
+    def setUp(self):
+        resolver = patch(
+            "sentinel.http_watch.socket.getaddrinfo",
+            return_value=[
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))
+            ],
+        )
+        resolver.start()
+        self.addCleanup(resolver.stop)
+
     def test_bounded_index_detects_broken_page(self):
         root = "https://example.com/sitemap.xml"
         child = "https://example.com/posts.xml"
@@ -71,6 +83,17 @@ class SitemapWatchTests(unittest.TestCase):
         self.assertNotIn(outside, fetcher.calls)
         codes = {item.code for item in pack.evaluate({"checks": {}}, observation, None)}
         self.assertIn("SITEMAP_CROSS_ORIGIN_ENTRIES", codes)
+
+    def test_duplicate_urls_are_validated_and_fetched_once(self):
+        root = "https://example.com/sitemap.xml"
+        page = "https://example.com/page"
+        fetcher = FakeFetcher({
+            root: {"body": xml_urlset(page, page)},
+            page: {"body": "ok"},
+        })
+        observation = SitemapWatchPack(fetcher).observe({"id": "site", "url": root})
+        self.assertEqual(fetcher.calls, [root, page])
+        self.assertEqual(observation.facts["urls_checked"], 1)
 
     def test_url_set_change_is_one_time_event(self):
         root = "https://example.com/sitemap.xml"

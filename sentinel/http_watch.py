@@ -8,17 +8,35 @@ import time
 from html.parser import HTMLParser
 from typing import Any, Protocol
 from urllib.error import HTTPError
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from .core import Finding, Observation, stable_hash
 
 
 MAX_BODY_BYTES = 2_000_000
+INVALID_URL_EVIDENCE = "<invalid-url>"
 
 
 class HttpFetcher(Protocol):
     def fetch(self, url: str, timeout_seconds: float, max_body_bytes: int) -> dict[str, Any]: ...
+
+
+def sanitize_http_url_for_evidence(value: Any, fallback: str = INVALID_URL_EVIDENCE) -> str:
+    """Return an HTTP(S) URL without credential-bearing URL components."""
+    try:
+        parsed = urlsplit(str(value))
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+            return fallback
+        port = parsed.port
+    except (TypeError, ValueError):
+        return fallback
+
+    hostname = parsed.hostname
+    if ":" in hostname:
+        hostname = f"[{hostname}]"
+    netloc = f"{hostname}:{port}" if port is not None else hostname
+    return urlunsplit((parsed.scheme.lower(), netloc, parsed.path, "", ""))
 
 
 def validate_public_http_url(url: str) -> None:
@@ -153,11 +171,16 @@ class HttpWatchPack:
     def observe(self, target: dict[str, Any]) -> Observation:
         target_id = str(target["id"])
         url = str(target["url"])
+        safe_url = sanitize_http_url_for_evidence(url)
         timeout = min(max(float(target.get("timeout_seconds", 10)), 1), 30)
         max_bytes = min(max(int(target.get("max_body_bytes", 500_000)), 1_000), MAX_BODY_BYTES)
         try:
             response = self.fetcher.fetch(url, timeout, max_bytes)
             body = str(response.pop("body"))
+            response["final_url"] = sanitize_http_url_for_evidence(
+                response.get("final_url", url),
+                fallback=safe_url,
+            )
             parser = _HtmlFactsParser()
             parser.feed(body)
             headers = dict(response.get("headers", {}))
@@ -181,15 +204,15 @@ class HttpWatchPack:
                 kind=self.kind,
                 ok=True,
                 facts=facts,
-                evidence=[str(facts.get("final_url", url))],
+                evidence=[facts["final_url"]],
             )
         except Exception as exc:
             return Observation(
                 target_id=target_id,
                 kind=self.kind,
                 ok=False,
-                facts={"error_type": type(exc).__name__, "error": str(exc)[:300], "url": url},
-                evidence=[url],
+                facts={"error_type": type(exc).__name__, "error": str(exc)[:300], "url": safe_url},
+                evidence=[safe_url],
             )
 
     def evaluate(

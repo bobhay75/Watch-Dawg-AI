@@ -6,7 +6,12 @@ from urllib.parse import urlsplit
 from xml.etree import ElementTree
 
 from .core import Finding, Observation
-from .http_watch import MAX_BODY_BYTES, SafeHttpFetcher, validate_public_http_url
+from .http_watch import (
+    MAX_BODY_BYTES,
+    SafeHttpFetcher,
+    sanitize_http_url_for_evidence,
+    validate_public_http_url,
+)
 
 
 class SitemapFetcher(Protocol):
@@ -83,14 +88,17 @@ class SitemapWatchPack:
             raise ValueError(f"unsupported sitemap root element: {root_type}")
 
         normalized_urls = []
+        seen_urls = set()
         skipped_cross_origin = []
         for page_url in page_urls:
+            if page_url in seen_urls:
+                continue
+            seen_urls.add(page_url)
             if not _same_origin(sitemap_url, page_url):
-                skipped_cross_origin.append(page_url)
+                skipped_cross_origin.append(sanitize_http_url_for_evidence(page_url))
                 continue
             validate_public_http_url(page_url)
-            if page_url not in normalized_urls:
-                normalized_urls.append(page_url)
+            normalized_urls.append(page_url)
             if len(normalized_urls) >= max_urls:
                 break
 
@@ -99,7 +107,10 @@ class SitemapWatchPack:
         for page_url in normalized_urls:
             response = self.fetcher.fetch(page_url, timeout, 1_000)
             statuses[page_url] = int(response["status"])
-            final_urls[page_url] = str(response.get("final_url", page_url))
+            final_urls[page_url] = sanitize_http_url_for_evidence(
+                response.get("final_url", page_url),
+                fallback=page_url,
+            )
 
         url_set_hash = hashlib.sha256(
             "\0".join(sorted(normalized_urls)).encode("utf-8")

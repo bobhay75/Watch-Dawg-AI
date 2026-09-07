@@ -6,7 +6,11 @@ from pathlib import Path
 from typing import Any
 
 from sentinel.core import Finding, Observation, SentinelEngine, StateStore
-from sentinel.http_watch import HttpWatchPack, validate_public_http_url
+from sentinel.http_watch import (
+    HttpWatchPack,
+    sanitize_http_url_for_evidence,
+    validate_public_http_url,
+)
 from sentinel.log_watch import AccessLogWatchPack
 
 
@@ -28,14 +32,15 @@ class SequencePack:
 
 
 class FakeHttpFetcher:
-    def __init__(self, body: str, status: int = 200):
+    def __init__(self, body: str, status: int = 200, final_url: str | None = None):
         self.body = body
         self.status = status
+        self.final_url = final_url
 
     def fetch(self, url: str, timeout_seconds: float, max_body_bytes: int) -> dict[str, Any]:
         return {
             "status": self.status,
-            "final_url": url,
+            "final_url": self.final_url or url,
             "latency_ms": 25,
             "headers": {"content-type": "text/html"},
             "body": self.body,
@@ -70,6 +75,35 @@ class HttpWatchTests(unittest.TestCase):
     def test_private_network_target_is_blocked(self) -> None:
         with self.assertRaisesRegex(ValueError, "private"):
             validate_public_http_url("http://127.0.0.1/admin")
+
+    def test_final_url_evidence_strips_credentials_and_rejects_bad_schemes(self) -> None:
+        self.assertEqual(
+            sanitize_http_url_for_evidence(
+                "https://user:secret@example.com/landing?access_token=hidden#token"
+            ),
+            "https://example.com/landing",
+        )
+        self.assertEqual(
+            sanitize_http_url_for_evidence(
+                "file:///etc/passwd",
+                fallback="https://example.com/",
+            ),
+            "https://example.com/",
+        )
+
+        observation = HttpWatchPack(
+            FakeHttpFetcher(
+                "ok",
+                final_url=(
+                    "https://user:secret@example.com/landing"
+                    "?access_token=hidden#token"
+                ),
+            )
+        ).observe({"id": "site", "url": "https://example.com/"})
+        self.assertEqual(observation.facts["final_url"], "https://example.com/landing")
+        self.assertEqual(observation.evidence, ["https://example.com/landing"])
+        self.assertNotIn("secret", str(observation.to_dict()))
+        self.assertNotIn("hidden", str(observation.to_dict()))
 
     def test_detects_zero_jsonld_price_and_missing_marker(self) -> None:
         body = """<html><head><title>Show</title><script type="application/ld+json">{"@type":"Event","offers":{"@type":"Offer","price":0}}</script></head><body>Buy Tickets</body></html>"""
