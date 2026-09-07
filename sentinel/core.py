@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
+from .discernment import build_discernment, explain_finding
+
 
 SEVERITY_WEIGHTS = {
     "critical": 35,
@@ -16,6 +18,7 @@ SEVERITY_WEIGHTS = {
     "info": 0,
 }
 TRUTH_LABELS = {"VERIFIED", "INFERENCE"}
+EVIDENCE_GRADES = {"A", "B", "C", "D"}
 AUTHORIZATION_MODES = {"public", "owner", "contract"}
 
 
@@ -35,6 +38,8 @@ class Finding:
     title: str
     detail: str
     truth: str = "VERIFIED"
+    confidence: int = 100
+    evidence_grade: str = "A"
     evidence: dict[str, Any] = field(default_factory=dict)
     stateful: bool = True
 
@@ -43,6 +48,10 @@ class Finding:
             raise ValueError(f"unsupported severity: {self.severity}")
         if self.truth not in TRUTH_LABELS:
             raise ValueError(f"unsupported truth label: {self.truth}")
+        if not 0 <= self.confidence <= 100:
+            raise ValueError("confidence must be between 0 and 100")
+        if self.evidence_grade not in EVIDENCE_GRADES:
+            raise ValueError(f"unsupported evidence grade: {self.evidence_grade}")
 
     @property
     def fingerprint(self) -> str:
@@ -130,7 +139,7 @@ class SentinelEngine:
         state = self.state_store.load()
         results = [self._run_target(target, state) for target in targets]
         self.state_store.save(state)
-        return {
+        output = {
             "generated_at": utc_now_iso(),
             "notify": any(result["new_alerts"] or result["resolved"] for result in results),
             "targets_checked": len(results),
@@ -138,6 +147,8 @@ class SentinelEngine:
             "resolved_count": sum(len(result["resolved"]) for result in results),
             "results": results,
         }
+        output["discernment"] = build_discernment(results)
+        return output
 
     def _run_target(
         self,
@@ -232,7 +243,8 @@ class SentinelEngine:
             "observed_at": current.observed_at,
             "verdict": verdict,
             "dawg_score": score,
-            "current_findings": [item.to_dict() for item in findings],
+            "evidence_sources": list(current.evidence),
+            "current_findings": [explain_finding(item.to_dict()) for item in findings],
             "new_alerts": new_alerts,
             "resolved": resolved,
         }
