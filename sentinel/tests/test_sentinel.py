@@ -12,6 +12,7 @@ from sentinel.http_watch import (
     validate_public_http_url,
 )
 from sentinel.log_watch import AccessLogWatchPack
+from sentinel.discernment import build_discernment
 
 
 class SequencePack:
@@ -50,6 +51,35 @@ class FakeHttpFetcher:
 
 
 class SentinelEngineTests(unittest.TestCase):
+    def test_discernment_exposes_deficits_and_builds_measurable_prosperity_plan(self) -> None:
+        result = build_discernment([{
+            "target_id": "site",
+            "evidence_sources": [],
+            "current_findings": [Finding(
+                target_id="site",
+                code="HTTP_LATENCY_HIGH",
+                severity="medium",
+                title="Slow",
+                detail="Response exceeded the configured threshold.",
+            ).to_dict()],
+        }])
+        self.assertEqual(result["blind_spots"][0]["target_id"], "site")
+        self.assertEqual(result["deficit_analysis"][0]["impact_status"], "UNQUANTIFIED")
+        self.assertIn("customer friction", result["prosperity_plan"][0]["objective"])
+        self.assertIn("before-and-after", result["prosperity_plan"][0]["verification"])
+        self.assertEqual(result["prosperity_plan"][0]["financial_claim"], "NOT CALCULATED")
+
+    def test_finding_rejects_invalid_confidence(self) -> None:
+        with self.assertRaisesRegex(ValueError, "confidence"):
+            Finding(
+                target_id="x",
+                code="X",
+                severity="low",
+                title="x",
+                detail="x",
+                confidence=101,
+            )
+
     def test_alerts_once_then_emits_recovery(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             engine = SentinelEngine(StateStore(Path(directory) / "state.json"), [SequencePack([True, False, False, True])])
