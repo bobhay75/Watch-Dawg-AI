@@ -12,6 +12,14 @@ ACTION_CATALOG: dict[str, dict[str, str]] = {
         "success_metric": "A current authorization record exists and the assigned watch pack completes successfully.",
         "verification": "Run the pack again and retain the authorization and observation receipts.",
     },
+    "AUTHORIZATION_SCOPE_DENIED": {
+        "deficit": "The declared authority does not cover this watch pack's observation methods.",
+        "why_it_matters": "Running the pack would exceed the recorded monitoring scope.",
+        "preventive_action": "Use a permitted watch pack or obtain and record authorization for the additional methods and scope.",
+        "prosperity_lever": "Restore accountable visibility without crossing the approved boundary.",
+        "success_metric": "The authorization record covers the selected pack, target, methods, and duration.",
+        "verification": "Confirm the authorization record against the pack's allowed modes before observation.",
+    },
     "HTTP_OBSERVATION_FAILED": {
         "deficit": "The target has an active monitoring blind spot.",
         "why_it_matters": "A monitoring blind spot can hide both outages and recovery.",
@@ -109,10 +117,23 @@ def build_discernment(results: list[dict[str, Any]]) -> dict[str, Any]:
     blind_spots: list[dict[str, str]] = []
     for result in results:
         if not result.get("evidence_sources"):
+            finding_codes = {
+                str(item.get("code", ""))
+                for item in result.get("current_findings", [])
+            }
+            if "AUTHORIZATION_REQUIRED" in finding_codes:
+                gap = "Evidence collection was not attempted because no supported authorization mode was declared."
+                improvement = "Record a supported public, owner, or contract authority before observation."
+            elif "AUTHORIZATION_SCOPE_DENIED" in finding_codes:
+                gap = "Evidence collection was not attempted because the declared authority is outside this watch pack's allowed scope."
+                improvement = "Use a permitted watch pack or obtain and record authorization for the additional methods and scope."
+            else:
+                gap = "No evidence source was captured for this observation."
+                improvement = "Attach an authoritative URL, file, log, or connector receipt."
             blind_spots.append({
                 "target_id": result["target_id"],
-                "gap": "No evidence source was captured for this observation.",
-                "improvement": "Attach an authoritative URL, file, log, or connector receipt.",
+                "gap": gap,
+                "improvement": improvement,
             })
     ranked = sorted(
         findings,
@@ -130,8 +151,8 @@ def build_discernment(results: list[dict[str, Any]]) -> dict[str, Any]:
                 "finding": item["title"],
                 "deficit": item["deficit"],
                 "current_condition": item.get("detail", ""),
-                "truth": item["truth"],
-                "confidence": item["confidence"],
+                "truth": item.get("truth", "INFERENCE"),
+                "confidence": item.get("confidence", 0),
                 "evidence": item.get("evidence", {}),
                 "impact_status": "UNQUANTIFIED",
                 "measurement_needed": "Attach a baseline, volume, cost, revenue, time, or conversion measure before assigning financial impact.",
@@ -142,8 +163,8 @@ def build_discernment(results: list[dict[str, Any]]) -> dict[str, Any]:
             {
                 "target_id": item["target_id"],
                 "finding": item["title"],
-                "truth": item["truth"],
-                "confidence": item["confidence"],
+                "truth": item.get("truth", "INFERENCE"),
+                "confidence": item.get("confidence", 0),
                 "why_it_matters": item["why_it_matters"],
                 "preventive_action": item["preventive_action"],
             }

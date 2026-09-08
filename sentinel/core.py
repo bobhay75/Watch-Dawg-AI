@@ -245,8 +245,8 @@ class SentinelEngine:
             "dawg_score": score,
             "evidence_sources": list(current.evidence),
             "current_findings": [explain_finding(item.to_dict()) for item in findings],
-            "new_alerts": new_alerts,
-            "resolved": resolved,
+            "new_alerts": [explain_finding(item) for item in new_alerts],
+            "resolved": [explain_finding(item) for item in resolved],
         }
 
     @staticmethod
@@ -262,8 +262,8 @@ class SentinelEngine:
                 target_id=target_id,
                 code="AUTHORIZATION_REQUIRED",
                 severity="critical",
-                title="Target blocked: authorization missing",
-                detail="Declare public, owner, or contract authority before observation.",
+                title="Target blocked: authorization missing or unsupported",
+                detail="Declare a supported public, owner, or contract authority before observation.",
             )
         if mode not in pack.allowed_authorization_modes:
             return Finding(
