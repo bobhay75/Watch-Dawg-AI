@@ -12,6 +12,7 @@ from sentinel.http_watch import (
     validate_public_http_url,
 )
 from sentinel.log_watch import AccessLogWatchPack
+from sentinel.discernment import build_discernment
 
 
 class SequencePack:
@@ -50,6 +51,63 @@ class FakeHttpFetcher:
 
 
 class SentinelEngineTests(unittest.TestCase):
+    def test_discernment_exposes_deficits_and_builds_measurable_prosperity_plan(self) -> None:
+        result = build_discernment([{
+            "target_id": "site",
+            "evidence_sources": [],
+            "current_findings": [Finding(
+                target_id="site",
+                code="HTTP_LATENCY_HIGH",
+                severity="medium",
+                title="Slow",
+                detail="Response exceeded the configured threshold.",
+            ).to_dict()],
+        }])
+        self.assertEqual(result["blind_spots"][0]["target_id"], "site")
+        self.assertEqual(result["deficit_analysis"][0]["impact_status"], "UNQUANTIFIED")
+        self.assertIn("customer friction", result["prosperity_plan"][0]["objective"])
+        self.assertIn("before-and-after", result["prosperity_plan"][0]["verification"])
+        self.assertEqual(result["prosperity_plan"][0]["financial_claim"], "NOT CALCULATED")
+
+    def test_discernment_uses_conservative_defaults_for_legacy_findings(self) -> None:
+        result = build_discernment([{
+            "target_id": "legacy",
+            "evidence_sources": ["legacy-record"],
+            "current_findings": [{
+                "target_id": "legacy",
+                "code": "LEGACY_FINDING",
+                "severity": "medium",
+                "title": "Legacy finding",
+                "detail": "This record predates truth and confidence fields.",
+            }],
+        }])
+        self.assertEqual(result["deficit_analysis"][0]["truth"], "INFERENCE")
+        self.assertEqual(result["deficit_analysis"][0]["confidence"], 0)
+        self.assertEqual(result["preventive_priorities"][0]["truth"], "INFERENCE")
+        self.assertEqual(result["preventive_priorities"][0]["confidence"], 0)
+
+    def test_finding_rejects_invalid_confidence(self) -> None:
+        with self.assertRaisesRegex(ValueError, "confidence"):
+            Finding(
+                target_id="x",
+                code="X",
+                severity="low",
+                title="x",
+                detail="x",
+                confidence=101,
+            )
+
+    def test_finding_rejects_invalid_evidence_grade(self) -> None:
+        with self.assertRaisesRegex(ValueError, "evidence grade"):
+            Finding(
+                target_id="x",
+                code="X",
+                severity="low",
+                title="x",
+                detail="x",
+                evidence_grade="F",
+            )
+
     def test_alerts_once_then_emits_recovery(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             engine = SentinelEngine(StateStore(Path(directory) / "state.json"), [SequencePack([True, False, False, True])])
@@ -57,10 +115,27 @@ class SentinelEngineTests(unittest.TestCase):
             self.assertFalse(engine.run([target])["notify"])
             second = engine.run([target])
             self.assertEqual(second["new_alert_count"], 1)
+            audit_fields = {
+                "deficit",
+                "why_it_matters",
+                "preventive_action",
+                "prosperity_lever",
+                "success_metric",
+                "verification",
+            }
+            current = second["results"][0]["current_findings"][0]
+            new_alert = second["results"][0]["new_alerts"][0]
+            self.assertTrue(audit_fields.issubset(current))
+            self.assertTrue(audit_fields.issubset(new_alert))
+            self.assertEqual(current["fingerprint"], new_alert["fingerprint"])
             third = engine.run([target])
             self.assertFalse(third["notify"])
             fourth = engine.run([target])
             self.assertEqual(fourth["resolved_count"], 1)
+            resolved = fourth["results"][0]["resolved"][0]
+            self.assertTrue(audit_fields.issubset(resolved))
+            self.assertEqual(new_alert["fingerprint"], resolved["fingerprint"])
+            self.assertEqual(resolved["resolved_at"], fourth["results"][0]["observed_at"])
 
     def test_missing_authorization_blocks_pack(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -69,6 +144,41 @@ class SentinelEngineTests(unittest.TestCase):
             alert = result["results"][0]["new_alerts"][0]
             self.assertEqual(alert["code"], "AUTHORIZATION_REQUIRED")
             self.assertEqual(alert["severity"], "critical")
+            blind_spot = result["discernment"]["blind_spots"][0]
+            self.assertIn("no supported authorization mode", blind_spot["gap"])
+            self.assertNotIn("No evidence source", blind_spot["gap"])
+            self.assertIn("authority before observation", blind_spot["improvement"])
+
+    def test_unsupported_authorization_mode_reports_accurate_blind_spot(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            engine = SentinelEngine(StateStore(Path(directory) / "state.json"), [SequencePack([True])])
+            result = engine.run([{
+                "id": "fixture",
+                "kind": "sequence",
+                "authorization": {"mode": "unsupported"},
+            }])
+            alert = result["results"][0]["new_alerts"][0]
+            self.assertEqual(alert["code"], "AUTHORIZATION_REQUIRED")
+            self.assertIn("missing or unsupported", alert["title"])
+            blind_spot = result["discernment"]["blind_spots"][0]
+            self.assertIn("no supported authorization mode", blind_spot["gap"])
+
+    def test_insufficient_authorization_reports_scope_blind_spot(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            engine = SentinelEngine(StateStore(Path(directory) / "state.json"), [SequencePack([True])])
+            result = engine.run([{
+                "id": "fixture",
+                "kind": "sequence",
+                "authorization": {"mode": "public"},
+            }])
+            alert = result["results"][0]["new_alerts"][0]
+            self.assertEqual(alert["code"], "AUTHORIZATION_SCOPE_DENIED")
+            self.assertIn("does not cover", alert["deficit"])
+            self.assertIn("before observation", alert["verification"])
+            blind_spot = result["discernment"]["blind_spots"][0]
+            self.assertIn("outside this watch pack's allowed scope", blind_spot["gap"])
+            self.assertNotIn("No evidence source", blind_spot["gap"])
+            self.assertIn("additional methods and scope", blind_spot["improvement"])
 
 
 class HttpWatchTests(unittest.TestCase):

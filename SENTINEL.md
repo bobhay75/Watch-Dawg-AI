@@ -1,6 +1,8 @@
-# Watch-Dawg Sentinel
+# Watch-Dawg Deep Audit Engine
 
-Watch-Dawg Sentinel is the authorized cyber stakeout and change-monitoring layer for Watch-Dawg AI. It turns the existing **detect first, explain second, human decides** rule into a reusable monitoring engine.
+Watch-Dawg is an authorized deep-audit and preventive-intelligence engine. Set it on a business, campaign, website, system, repository, workflow, document set, or data source and it looks for observable flaws, leaks, contradictions, missing controls, wasted effort, and preventable future failures. Sentinel is its continuous-observation layer, not the identity of the whole product.
+
+The operating rule is **observe, prove, diagnose, improve, verify; human decides**. Every supported finding identifies the deficit, explains why it matters, proposes the smallest preventive correction, names the efficiency or prosperity lever, defines a success measure, and states how to verify the result. It never invents a dollar value: financial impact remains `NOT CALCULATED` until sufficient volume, cost, revenue, time, or conversion evidence exists.
 
 It does not promise to watch literally everything. It can watch nearly any observable source for which the operator has a public-data basis, ownership, or documented authorization and a safe connector.
 
@@ -100,4 +102,4 @@ The core accepts additional watch packs without changing its alert contract. Nex
 4. public promotion, review, competitor, event, pricing, and reputation pack;
 5. KEY-9-controlled response actions with human approval and redacted receipts.
 
-The safe product promise is: **Watch-Dawg can watch any authorized signal that a pack can observe, prove what changed, suppress repeat noise, and put the decision in human hands.**
+The safe product promise is: **Watch-Dawg can deeply audit any authorized target its watch packs can observe, prove what changed, expose deficits and blind spots, formulate a measurable improvement plan, suppress repeat noise, and put the decision in human hands.**
