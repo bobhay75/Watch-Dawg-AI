@@ -25,4 +25,14 @@ jobs:
         run: python -m compileall -q sentinel
       - name: Run Sentinel tests
         run: python -m unittest discover -s sentinel/tests -v
-
+      - name: Build restricted API image
+        run: docker build --tag watch-dawg-sentinel-api:test -f sentinel/Dockerfile .
+      - name: Verify API fails closed without a bearer token
+        run: |
+          if output=$(docker run --rm watch-dawg-sentinel-api:test \
+            python -c "from sentinel.api import build_service_from_env; build_service_from_env()" 2>&1); then
+            echo "API unexpectedly accepted a missing token" >&2
+            exit 1
+          fi
+          printf '%s\n' "$output" | grep -F \
+            "SENTINEL_API_TOKEN must contain at least 32 characters"
