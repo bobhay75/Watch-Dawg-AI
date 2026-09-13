@@ -1,0 +1,84 @@
+{
+  "targets": [
+    {
+      "id": "black-oak-domain-health",
+      "kind": "dns_tls",
+      "hostname": "blackoakamp.com",
+      "timeout_seconds": 5,
+      "authorization": {
+        "mode": "public",
+        "note": "Passive DNS and TLS monitoring of the public venue domain"
+      },
+      "checks": {
+        "tls_expiry_warning_days": 30,
+        "tls_expiry_critical_days": 7,
+        "minimum_tls_version": "TLSv1.2"
+      }
+    },
+    {
+      "id": "black-oak-sitemap-health",
+      "kind": "sitemap",
+      "url": "https://blackoakamp.com/wp-sitemap.xml",
+      "timeout_seconds": 5,
+      "max_sitemaps": 2,
+      "max_urls": 5,
+      "authorization": {
+        "mode": "public",
+        "note": "Bounded same-origin monitoring of public sitemap listings and landing pages"
+      },
+      "checks": {
+        "minimum_urls": 1
+      }
+    },
+    {
+      "id": "black-oak-big-rich",
+      "kind": "http",
+      "url": "https://blackoakamp.com/event/big-rich-9-11-25th-anniversary-with-craig-morgan/black-oak-amphitheater/lampe/",
+      "timeout_seconds": 5,
+      "authorization": {
+        "mode": "public",
+        "note": "Passive monitoring of a public event page"
+      },
+      "checks": {
+        "allowed_statuses": [200],
+        "contains": ["Big & Rich", "Friday, September 11", "Buy Tickets"],
+        "jsonld_offer_price_nonzero": true,
+        "track_content": true,
+        "max_latency_ms": 3000
+      }
+    },
+    {
+      "id": "black-oak-rocktoberfest",
+      "kind": "http",
+      "url": "https://blackoakamp.com/event/rocktoberfest/black-oak-amphitheater/lampe/",
+      "timeout_seconds": 5,
+      "authorization": {
+        "mode": "public",
+        "note": "Passive monitoring of a public event page"
+      },
+      "checks": {
+        "allowed_statuses": [200],
+        "contains": ["ROCKtoberfest", "Saturday, October 10", "Buy Tickets"],
+        "jsonld_offer_price_nonzero": true,
+        "track_content": true,
+        "max_latency_ms": 3000
+      }
+    },
+    {
+      "id": "black-oak-rules-domain",
+      "kind": "http",
+      "url": "https://blackoakamp.com/rules-policies/",
+      "timeout_seconds": 5,
+      "authorization": {
+        "mode": "public",
+        "note": "Passive monitoring of a public policy page"
+      },
+      "checks": {
+        "allowed_statuses": [200],
+        "not_contains": ["www.blackoakmountainamp.com"],
+        "track_content": true,
+        "max_latency_ms": 3000
+      }
+    }
+  ]
+}

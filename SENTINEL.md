@@ -141,6 +141,34 @@ Before horizontal scaling or Internet exposure, place the service behind a
 managed HTTPS proxy with a shared rate limit and request timeout, and move state
 to durable storage with cross-instance locking.
 
+### Private staging on Cloud Run
+
+The staging deployer keeps Cloud Run IAM enabled, removes `allUsers` and
+`allAuthenticatedUsers` invoker bindings, creates a dedicated runtime identity,
+stores a generated application token in Secret Manager, pins the deployed
+revision to that exact secret version, and limits the service to one concurrent
+request on at most one scale-to-zero instance. The smoke test proves anonymous
+access is denied and then supplies Cloud Run identity through
+`X-Serverless-Authorization` alongside Sentinel's application token.
+
+Run this only from an authenticated Google Cloud Shell attached to the intended
+project:
+
+```bash
+git clone https://github.com/bobhay75/Watch-Dawg-AI.git
+cd Watch-Dawg-AI
+export GOOGLE_CLOUD_PROJECT="bobsome1"
+export SENTINEL_STAGING_DEPLOY=true
+bash sentinel/scripts/deploy-cloud-run-staging.sh
+```
+
+The default `black-oak-staging` profile performs only bounded passive checks of
+public Black Oak resources: five targets, five-second per-request timeouts, no
+more than two child sitemaps, and no more than five sitemap landing pages. The
+deployment does not connect the API to GitHub Pages or make it production-ready.
+Its `/state` data remains ephemeral and can disappear whenever Cloud Run scales
+to zero or replaces the instance.
+
 ## Expansion path
 
 The core accepts additional watch packs without changing its alert contract. Next packs should be built in this order:
