@@ -92,6 +92,55 @@ Run tests:
 python -m unittest discover -s sentinel/tests -v
 ```
 
+## Restricted API
+
+`sentinel.api` exposes the engine to an authenticated server-side caller without
+accepting caller-supplied URLs or targets. A request may name only a profile that
+the server operator mapped to a reviewed JSON configuration file.
+
+Security controls in the first service boundary:
+
+- a bearer token of at least 32 characters is required for every run;
+- profile names and configuration paths are server-owned and fail closed;
+- configuration paths cannot escape the configured root;
+- request bodies are limited to 2 KiB and may contain only `profile`;
+- a process-wide request limit and per-profile cooldown bound repeat observation;
+- simultaneous runs of one profile are rejected to protect its state file;
+- responses are non-cacheable and return defensive browser headers;
+- no CORS access is enabled, so the bearer token is not placed in the static demo;
+- `/healthz` is public but reports only service health and the profile count.
+
+Example server configuration:
+
+```bash
+export SENTINEL_API_TOKEN="replace-with-a-random-secret-of-at-least-32-characters"
+export SENTINEL_CONFIG_ROOT="sentinel/examples"
+export SENTINEL_PROFILES_JSON='{"black-oak-public":"black-oak.json"}'
+export SENTINEL_STATE_ROOT=".sentinel/api-state"
+python -m sentinel.api
+```
+
+Run an approved profile from a trusted server-side client:
+
+```bash
+curl --fail-with-body \
+  -H "Authorization: Bearer $SENTINEL_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"profile":"black-oak-public"}' \
+  http://127.0.0.1:8080/v1/run
+```
+
+The container is intentionally unconfigured by default. Build it with
+`docker build -f sentinel/Dockerfile -t watch-dawg-sentinel-api .`, then inject
+the token and approved profile mapping through the deployment platform. Do not
+place the bearer token in GitHub Pages, browser JavaScript, source control, or a
+public configuration file.
+
+The built-in limiter and file-backed state are intentionally single-instance.
+Before horizontal scaling or Internet exposure, place the service behind a
+managed HTTPS proxy with a shared rate limit and request timeout, and move state
+to durable storage with cross-instance locking.
+
 ## Expansion path
 
 The core accepts additional watch packs without changing its alert contract. Next packs should be built in this order:
