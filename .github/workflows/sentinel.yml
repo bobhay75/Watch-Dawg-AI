@@ -23,6 +23,8 @@ jobs:
           python-version: "3.12"
       - name: Compile Sentinel
         run: python -m compileall -q sentinel
+      - name: Check staging deployment scripts
+        run: bash -n sentinel/scripts/*.sh
       - name: Run Sentinel tests
         run: python -m unittest discover -s sentinel/tests -v
       - name: Build restricted API image
