@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import{auditAllocation,reconcile,dawScore,runWatchDawg,explainAudit,sampleScenarios}from'./watchdawg.js';
 
 assert.equal(auditAllocation({gross:500,rate:.1,vault:50,spend:450}).status,'VERIFIED');
@@ -51,4 +52,14 @@ assert.match(explainAudit(anomalyRun),/Review queue/);
 const invalidJsonShape=runWatchDawg(null);
 assert.equal(invalidJsonShape.mode,'transaction');
 assert.equal(invalidJsonShape.status,'REVIEW');
+const publicDemo=fs.readFileSync(new URL('./public-demo.html',import.meta.url),'utf8');
+for(const id of ['demo','jump','score','headline','audit','s1','s2','s3','s4','approve','live','target','auth','hunt','liveout','proof','sentinel-field']){
+  assert.match(publicDemo,new RegExp('id=["\\\\\']'+id+'["\\\\\']'),'public demo must retain #'+id);
+}
+assert.match(publicDemo,/prefers-reduced-motion/,'public demo must respect reduced motion');
+assert.match(publicDemo,/aria-live="polite"/,'dynamic demo output must be announced');
+assert.match(publicDemo,/from\s+["']\.\/watchdawg\.js["']/,'public demo must use the tested audit core');
+assert.match(publicDemo,/I own this target or have explicit authorization/,'live intake must keep its authorization gate');
+assert.match(publicDemo,/No intrusive scan was launched from your browser/,'live intake must state its defensive boundary');
+
 console.log('Watch-Dawg tests passed');
