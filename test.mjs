@@ -54,7 +54,7 @@ assert.equal(invalidJsonShape.mode,'transaction');
 assert.equal(invalidJsonShape.status,'REVIEW');
 const publicDemo=fs.readFileSync(new URL('./public-demo.html',import.meta.url),'utf8');
 for(const id of ['demo','jump','score','headline','audit','s1','s2','s3','s4','approve','live','target','auth','hunt','liveout','proof','sentinel-field']){
-  assert.match(publicDemo,new RegExp('id=["\\\\\']'+id+'["\\\\\']'),'public demo must retain #'+id);
+  assert.match(publicDemo,new RegExp('id="'+id+'"'),'public demo must retain #'+id);
 }
 assert.match(publicDemo,/prefers-reduced-motion/,'public demo must respect reduced motion');
 assert.match(publicDemo,/aria-live="polite"/,'dynamic demo output must be announced');
