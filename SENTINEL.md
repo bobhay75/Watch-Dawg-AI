@@ -4,6 +4,18 @@ Watch-Dawg is an authorized deep-audit and preventive-intelligence engine. Set i
 
 The operating rule is **observe, prove, diagnose, improve, verify; human decides**. Every supported finding identifies the deficit, explains why it matters, proposes the smallest preventive correction, names the efficiency or prosperity lever, defines a success measure, and states how to verify the result. It never invents a dollar value: financial impact remains `NOT CALCULATED` until sufficient volume, cost, revenue, time, or conversion evidence exists.
 
+## Swarm Defense shadow module
+
+The optional `swarm_device` watch pack evaluates a locally produced snapshot for camera, microphone, identity, process, network, device-posture, and private-mesh risk signals. It is disabled unless a target explicitly sets `enabled: true`, requires an unexpired owner/contract authorization whose device and path match exactly, and accepts only `shadow` or `advisory` mode.
+
+It never installs an agent, scans a network, records media, blocks a process, changes an account, patches software, or executes a response. Sensitive destinations are represented by truncated SHA-256 evidence rather than raw values. Any future containment action must pass the existing human-approval boundary and an optional ProofPass adapter.
+
+Run the harmless local example:
+
+```bash
+python -m sentinel.cli --config sentinel/config.swarm-shadow.example.json --state /tmp/watch-dawg-swarm-state.json
+```
+
 It does not promise to watch literally everything. It can watch nearly any observable source for which the operator has a public-data basis, ownership, or documented authorization and a safe connector.
 
 ## What this MVP watches

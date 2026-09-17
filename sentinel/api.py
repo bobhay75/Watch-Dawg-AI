@@ -25,6 +25,7 @@ from .log_watch import AccessLogWatchPack
 from .secret_watch import SecretExposureWatchPack
 from .service_watch import ServiceExposureWatchPack
 from .sitemap_watch import SitemapWatchPack
+from .swarm_watch import SwarmDefenseWatchPack
 
 
 LOGGER = logging.getLogger("watch_dawg.sentinel.api")
@@ -148,6 +149,7 @@ def run_profile(config_path: Path, state_path: Path) -> dict[str, Any]:
     log_root = Path(config.get("log_root", "."))
     secret_root = Path(config.get("secret_root", "."))
     ai_manifest_root = Path(config.get("ai_manifest_root", "."))
+    swarm_snapshot_root = Path(config.get("swarm_snapshot_root", "."))
     engine = SentinelEngine(
         StateStore(state_path),
         [
@@ -158,6 +160,7 @@ def run_profile(config_path: Path, state_path: Path) -> dict[str, Any]:
             ServiceExposureWatchPack(),
             SecretExposureWatchPack(secret_root),
             AiSystemRiskWatchPack(ai_manifest_root),
+            SwarmDefenseWatchPack(swarm_snapshot_root),
         ],
     )
     return engine.run(config["targets"])

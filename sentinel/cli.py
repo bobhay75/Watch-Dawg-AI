@@ -13,6 +13,7 @@ from .log_watch import AccessLogWatchPack
 from .secret_watch import SecretExposureWatchPack
 from .service_watch import ServiceExposureWatchPack
 from .sitemap_watch import SitemapWatchPack
+from .swarm_watch import SwarmDefenseWatchPack
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -36,6 +37,7 @@ def main() -> int:
     log_root = Path(config.get("log_root", "."))
     secret_root = Path(config.get("secret_root", "."))
     ai_manifest_root = Path(config.get("ai_manifest_root", "."))
+    swarm_snapshot_root = Path(config.get("swarm_snapshot_root", "."))
     engine = SentinelEngine(
         StateStore(args.state),
         [
@@ -46,6 +48,7 @@ def main() -> int:
             ServiceExposureWatchPack(),
             SecretExposureWatchPack(secret_root),
             AiSystemRiskWatchPack(ai_manifest_root),
+            SwarmDefenseWatchPack(swarm_snapshot_root),
         ],
     )
     result = engine.run(config["targets"])
