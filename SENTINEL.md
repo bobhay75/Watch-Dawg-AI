@@ -156,8 +156,8 @@ python scripts/verify_supply_chain.py
 
 The verifier fails on non-SHA-pinned third-party GitHub Actions, unpinned Python
 requirements, missing Node lockfiles, and floating `latest` container bases. A
-versioned container base without a digest is reported as a warning so the
-remaining provenance gap is visible rather than hidden.
+versioned container base without a digest remains a warning; the shipped KEY-9
+and Sentinel images are pinned to reviewed multi-platform OCI-index digests.
 
 ## Restricted API
 

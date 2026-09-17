@@ -25,7 +25,7 @@ correction evidence for public-sector pilots
   and tool defaults, prompt/output safeguards, brokered secrets, recovery
   objectives, and cryptographic migration ownership.
 - Repository supply-chain evidence covering commit-pinned workflow actions,
-  exact Python dependencies, Node lockfiles, container-base warnings, source
+  exact Python dependencies, Node lockfiles, container-base digests, source
   hashes, and a machine-readable SPDX SBOM.
 - Deterministic transaction-allocation review and SHA-256-bound correction
   proposals that require explicit review and create no external financial
@@ -104,8 +104,8 @@ separate work packages.
 - [ ] Validate declared AI safeguards through adversarial testing, runtime
       telemetry, supplier review, and incident exercises; a manifest alone is
       not operating-effectiveness evidence.
-- [ ] Replace version-tagged container bases with reviewed digest pins and
-      establish a documented dependency-update and vulnerability-response SLA.
+- [ ] Establish a documented dependency-update and vulnerability-response SLA;
+      review and deliberately update pinned container digests on that cadence.
 - [ ] Tailor the control matrix and SSP/OSCAL artifacts to the actual agency
       system boundary.
 

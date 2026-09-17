@@ -273,6 +273,8 @@ class SupplyChainVerificationTests(unittest.TestCase):
     def test_current_repository_has_no_supply_chain_errors(self) -> None:
         report = inspect_root(Path(__file__).resolve().parents[2])
         self.assertEqual(report["summary"]["errors"], 0, report["issues"])
+        self.assertEqual(report["summary"]["warnings"], 0, report["issues"])
+        self.assertEqual(report["status"], "PASS")
 
     def test_unpinned_action_and_dependency_fail(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

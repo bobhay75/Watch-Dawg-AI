@@ -55,8 +55,9 @@ operating effectively.
 
 The repository supply-chain verifier requires GitHub Actions to use full commit
 SHAs, Python dependencies to use exact versions, and Node projects with
-dependencies to retain a lockfile. Versioned-but-not-digest-pinned container
-bases remain an explicit warning and procurement gap.
+dependencies to retain a lockfile. Both shipped Python container bases use
+reviewed multi-platform OCI-index digest pins; updates require an explicit
+source change and repeat verification.
 
 ## Control crosswalk
 

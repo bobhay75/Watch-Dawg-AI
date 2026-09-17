@@ -26,8 +26,8 @@ The product principle is simple: **work happens in the field, Watch-Dawg watches
   output validation, brokered secrets, recovery objectives, and cryptographic
   migration ownership. It never invokes the reviewed model.
 - A CI supply-chain gate that requires full commit-SHA pins for GitHub Actions,
-  exact Python dependency versions, and Node lockfiles, while reporting
-  container bases that still need digest pins.
+  exact Python dependency versions, Node lockfiles, and reviewed OCI-index
+  digests for both Python container bases.
 
 ## Contractor direction
 
