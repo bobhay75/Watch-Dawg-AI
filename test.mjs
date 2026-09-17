@@ -1,6 +1,18 @@
 import assert from 'node:assert/strict';
 import{auditAllocation,reconcile,dawScore,runWatchDawg,explainAudit,sampleScenarios,createCorrectionPlan,applyApprovedCorrectionPlan}from'./watchdawg.js';
 
+const clone=value=>JSON.parse(JSON.stringify(value));
+const canonicalize=value=>Array.isArray(value)
+  ?value.map(canonicalize)
+  :value&&typeof value==='object'
+    ?Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonicalize(value[key])]))
+    :value;
+const digestValue=async value=>{
+  const bytes=new TextEncoder().encode(JSON.stringify(canonicalize(value)));
+  const hash=await globalThis.crypto.subtle.digest('SHA-256',bytes);
+  return[...new Uint8Array(hash)].map(byte=>byte.toString(16).padStart(2,'0')).join('');
+};
+
 assert.equal(auditAllocation({gross:500,rate:.1,vault:50,spend:450}).status,'VERIFIED');
 assert.equal(auditAllocation({gross:500,rate:.1,vault:20,spend:480}).status,'REVIEW');
 assert.equal(auditAllocation({gross:500,rate:1.5,vault:750,spend:-250}).status,'REVIEW');
@@ -61,21 +73,111 @@ assert.equal(correctionPlan.requiresHumanApproval,true);
 assert.equal(correctionPlan.externalWritePerformed,false);
 assert.deepEqual(correctionPlan.proposals[0].changes,{vault:50,spend:450});
 assert.equal(correctionPlan.unhandledReviews.length,1);
+const trustedApproval={
+  decision:'APPROVE',
+  approver:'Robert',
+  planDigest:correctionPlan.planDigest,
+  approvedAt:'2026-09-17T00:01:00.000Z',
+  expiresAt:'2026-09-17T01:00:00.000Z',
+  keyId:'test-root',
+  signature:'trusted-test-signature'
+};
+const approvalOptions={
+  now:'2026-09-17T00:30:00.000Z',
+  verifyApproval:async({approval,plan})=>approval.keyId==='test-root'
+    &&approval.signature==='trusted-test-signature'
+    &&approval.planDigest===plan.planDigest
+};
 await assert.rejects(
-  applyApprovedCorrectionPlan(correctionSource,correctionPlan,{decision:'APPROVE',approver:'Robert',planDigest:'wrong'}),
+  applyApprovedCorrectionPlan(correctionSource,correctionPlan,trustedApproval),
+  /trusted approval verifier/
+);
+await assert.rejects(
+  applyApprovedCorrectionPlan(correctionSource,correctionPlan,{...trustedApproval,signature:'forged'},approvalOptions),
+  /Trusted approval verification failed/
+);
+await assert.rejects(
+  applyApprovedCorrectionPlan(correctionSource,correctionPlan,{...trustedApproval,planDigest:'wrong'},approvalOptions),
   /Exact human approval/
 );
-const approved=await applyApprovedCorrectionPlan(correctionSource,correctionPlan,{
-  decision:'APPROVE',approver:'Robert',planDigest:correctionPlan.planDigest,approvedAt:'2026-09-17T00:01:00.000Z'
-});
+const approved=await applyApprovedCorrectionPlan(correctionSource,correctionPlan,trustedApproval,approvalOptions);
 assert.equal(approved.corrected.transactions[0].vault,50);
 assert.equal(approved.corrected.transactions[0].spend,450);
 assert.equal(correctionSource.transactions[0].vault,20);
 assert.equal(approved.receipt.externalWritePerformed,false);
 await assert.rejects(
-  applyApprovedCorrectionPlan({...correctionSource,opening:{spendable:301,vaulted:40}},correctionPlan,{
-    decision:'APPROVE',approver:'Robert',planDigest:correctionPlan.planDigest
-  }),
+  applyApprovedCorrectionPlan(
+    {...correctionSource,opening:{spendable:301,vaulted:40}},
+    correctionPlan,
+    trustedApproval,
+    approvalOptions
+  ),
   /Ledger changed/
+);
+
+for(const field of ['gross','type']){
+  const arbitraryFieldPlan=clone(correctionPlan);
+  arbitraryFieldPlan.proposals[0].changes[field]=field==='gross'?500:'vault-withdrawal';
+  arbitraryFieldPlan.proposals[0].before[field]=correctionSource.transactions[0][field];
+  await assert.rejects(
+    applyApprovedCorrectionPlan(correctionSource,arbitraryFieldPlan,trustedApproval,approvalOptions),
+    /only matching vault and spend fields/
+  );
+}
+
+const prototypePlan=clone(correctionPlan);
+prototypePlan.proposals[0].changes=JSON.parse(
+  '{"vault":50,"spend":450,"__proto__":{"watchDawgPolluted":true}}'
+);
+await assert.rejects(
+  applyApprovedCorrectionPlan(correctionSource,prototypePlan,trustedApproval,approvalOptions),
+  /forbidden object key/
+);
+assert.equal({}.watchDawgPolluted,undefined);
+
+const duplicatePlan=clone(correctionPlan);
+duplicatePlan.proposals.push(clone(duplicatePlan.proposals[0]));
+await assert.rejects(
+  applyApprovedCorrectionPlan(correctionSource,duplicatePlan,trustedApproval,approvalOptions),
+  /duplicate proposal IDs/
+);
+
+const unknownPlanField=clone(correctionPlan);
+unknownPlanField.executeExternalWrite=true;
+await assert.rejects(
+  applyApprovedCorrectionPlan(correctionSource,unknownPlanField,trustedApproval,approvalOptions),
+  /unknown or forbidden field/
+);
+
+const malformedPlan=clone(correctionPlan);
+malformedPlan.proposals[0].transactionIndex=.5;
+await assert.rejects(
+  applyApprovedCorrectionPlan(correctionSource,malformedPlan,trustedApproval,approvalOptions),
+  /invalid transaction index/
+);
+
+const tamperedPlan=clone(correctionPlan);
+tamperedPlan.proposals[0].changes.vault=49;
+const tamperedUnsigned={...tamperedPlan};
+delete tamperedUnsigned.planDigest;
+tamperedPlan.planDigest=await digestValue(tamperedUnsigned);
+await assert.rejects(
+  applyApprovedCorrectionPlan(
+    correctionSource,
+    tamperedPlan,
+    {...trustedApproval,planDigest:tamperedPlan.planDigest},
+    {now:approvalOptions.now,verifyApproval:async()=>true}
+  ),
+  /does not match the deterministic ledger corrections/
+);
+
+await assert.rejects(
+  applyApprovedCorrectionPlan(
+    correctionSource,
+    correctionPlan,
+    {...trustedApproval,expiresAt:'2026-09-17T00:10:00.000Z'},
+    {...approvalOptions,now:'2026-09-17T00:10:00.000Z'}
+  ),
+  /Approval has expired/
 );
 console.log('Watch-Dawg tests passed');

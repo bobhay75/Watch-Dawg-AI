@@ -26,9 +26,13 @@ const port = Number(process.env.PORT);
 const host = process.env.HOST;
 const root = '/app';
 const backend = process.env.REACT_APP_BACKEND_URL;
+const aiApiToken = process.env.WATCH_DAWG_AI_API_TOKEN;
 
-if (!port || !host || !backend) {
-  throw new Error('HOST, PORT, and REACT_APP_BACKEND_URL are required');
+if (!port || !host || !backend || !aiApiToken || aiApiToken.length < 32) {
+  throw new Error(
+    'HOST, PORT, REACT_APP_BACKEND_URL, and a 32+ character '
+    + 'WATCH_DAWG_AI_API_TOKEN are required',
+  );
 }
 
 const types = new Map([
@@ -40,9 +44,14 @@ const types = new Map([
 
 function proxyApi(req, res) {
   const target = new URL(req.url, backend);
+  const headers = {
+    ...req.headers,
+    host: target.host,
+    authorization: `Bearer ${aiApiToken}`,
+  };
   const proxy = http.request(
     target,
-    { method: req.method, headers: req.headers },
+    { method: req.method, headers },
     (apiRes) => {
       res.writeHead(apiRes.statusCode || 502, apiRes.headers);
       apiRes.pipe(res);

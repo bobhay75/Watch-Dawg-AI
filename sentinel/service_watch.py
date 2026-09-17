@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+import time
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -35,9 +36,9 @@ def _default_resolver(hostname: str) -> set[str]:
     return {item[4][0] for item in socket.getaddrinfo(hostname, None)}
 
 
-def _default_connector(hostname: str, port: int, timeout: float) -> bool:
+def _default_connector(address: str, port: int, timeout: float) -> bool:
     try:
-        with socket.create_connection((hostname, port), timeout=timeout):
+        with socket.create_connection((address, port), timeout=timeout):
             return True
     except (ConnectionError, OSError, TimeoutError):
         return False
@@ -104,19 +105,35 @@ class ServiceExposureWatchPack:
 
     def observe(self, target: dict[str, Any]) -> Observation:
         hostname, ports = _authorized_ports(target)
-        addresses = sorted(self.resolver(hostname))
+        raw_addresses = self.resolver(hostname)
+        parsed_addresses = []
+        for raw_address in raw_addresses:
+            try:
+                address = ipaddress.ip_address(str(raw_address))
+            except ValueError as exc:
+                raise ValueError("service hostname resolved to an invalid address") from exc
+            if not address.is_global or address.is_multicast:
+                raise ValueError("service discovery is limited to public addresses")
+            parsed_addresses.append(str(address))
+        addresses = sorted(set(parsed_addresses))
         if not addresses:
             raise ValueError("service hostname did not resolve")
-        if any(not ipaddress.ip_address(address).is_global for address in addresses):
-            raise ValueError("service discovery is limited to public addresses")
         timeout = min(max(float(target.get("timeout_seconds", 2)), 0.2), 5.0)
-        port_status = {
-            str(port): {
-                "open": self.connector(hostname, port, timeout),
+        port_status = {}
+        for port in ports:
+            deadline = time.monotonic() + timeout
+            is_open = False
+            for address in addresses:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                if self.connector(address, port, remaining):
+                    is_open = True
+                    break
+            port_status[str(port)] = {
+                "open": is_open,
                 "service_hint": KNOWN_SERVICES.get(port, "unknown"),
             }
-            for port in ports
-        }
         return Observation(
             target_id=str(target["id"]),
             kind=self.kind,

@@ -1,43 +1,85 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import socket
 import ssl
+import time
 from datetime import datetime, timezone
-from typing import Any, Protocol
+from typing import Any, Callable, Iterable, Protocol
 
 
 class DomainInspector(Protocol):
     def inspect(self, hostname: str, port: int, timeout_seconds: float) -> dict[str, Any]: ...
 
 
-def _public_addresses(hostname: str, port: int) -> list[str]:
-    import ipaddress
+Resolver = Callable[[str, int], Iterable[str]]
+Connector = Callable[[str, int, float], Any]
 
-    addresses = sorted(
-        {
-            item[4][0]
-            for item in socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
-        }
-    )
+
+def _default_resolver(hostname: str, port: int) -> Iterable[str]:
+    return {
+        item[4][0]
+        for item in socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+    }
+
+
+def _public_addresses(addresses: Iterable[str]) -> list[str]:
+    validated: set[str] = set()
+    for raw_address in addresses:
+        try:
+            address = ipaddress.ip_address(str(raw_address))
+        except ValueError as exc:
+            raise ValueError("hostname resolved to an invalid address") from exc
+        if not address.is_global or address.is_multicast:
+            raise ValueError("domain target resolved to a non-public address")
+        validated.add(str(address))
+    addresses = sorted(validated)
     if not addresses:
         raise ValueError("hostname did not resolve")
-    for address in addresses:
-        parsed = ipaddress.ip_address(address)
-        if not parsed.is_global:
-            raise ValueError("domain target resolved to a non-public address")
     return addresses
 
 
+def _default_connector(address: str, port: int, timeout_seconds: float) -> Any:
+    return socket.create_connection((address, port), timeout=timeout_seconds)
+
+
 class SocketDomainInspector:
+    def __init__(
+        self,
+        *,
+        resolver: Resolver | None = None,
+        connector: Connector | None = None,
+        tls_context: ssl.SSLContext | None = None,
+    ) -> None:
+        self.resolver = resolver or _default_resolver
+        self.connector = connector or _default_connector
+        self.tls_context = tls_context or ssl.create_default_context()
+
     def inspect(self, hostname: str, port: int, timeout_seconds: float) -> dict[str, Any]:
-        addresses = _public_addresses(hostname, port)
-        context = ssl.create_default_context()
-        with socket.create_connection((hostname, port), timeout=timeout_seconds) as raw:
-            with context.wrap_socket(raw, server_hostname=hostname) as secured:
-                certificate = secured.getpeercert()
-                cipher = secured.cipher()
-                protocol = secured.version()
+        addresses = _public_addresses(self.resolver(hostname, port))
+        deadline = time.monotonic() + timeout_seconds
+        last_error: Exception | None = None
+        certificate: dict[str, Any] | None = None
+        cipher: Any = None
+        protocol: str | None = None
+        for address in addresses:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("TLS inspection deadline exceeded")
+            try:
+                with self.connector(address, port, remaining) as raw:
+                    with self.tls_context.wrap_socket(raw, server_hostname=hostname) as secured:
+                        certificate = secured.getpeercert()
+                        cipher = secured.cipher()
+                        protocol = secured.version()
+                break
+            except (ConnectionError, OSError, TimeoutError) as exc:
+                last_error = exc
+        if certificate is None:
+            if last_error is not None:
+                raise last_error
+            raise ConnectionError("no validated address could be contacted")
         expires_raw = certificate.get("notAfter")
         if not expires_raw:
             raise ValueError("TLS certificate does not expose an expiry")

@@ -2,15 +2,6 @@ name: Build government evaluation evidence
 
 on:
   pull_request:
-    paths:
-      - "sentinel/**"
-      - "scripts/generate_government_evidence.py"
-      - "scripts/verify_supply_chain.py"
-      - "docs/**"
-      - "SECURITY.md"
-      - "watchdawg.js"
-      - "test.mjs"
-      - ".github/workflows/government-evidence.yml"
   push:
     branches: [main]
   workflow_dispatch:
@@ -38,6 +29,8 @@ jobs:
           python scripts/verify_supply_chain.py
       - name: Build evidence bundle
         run: python scripts/generate_government_evidence.py --output build/government-evidence
+      - name: Verify evidence artifact hashes
+        run: python scripts/generate_government_evidence.py --verify build/government-evidence
       - name: Upload evaluator artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

@@ -1,12 +1,16 @@
 import json
+import hmac
 import os
+import threading
+import time
 import uuid
+from collections import deque
 from collections.abc import AsyncIterator, Mapping
 from datetime import datetime, timezone
-from typing import Any, Final
+from typing import Annotated, Any, Final
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -24,6 +28,14 @@ load_dotenv()
 MONGO_URL: str | None = os.environ.get("MONGO_URL")
 DB_NAME: str | None = os.environ.get("DB_NAME")
 EMERGENT_LLM_KEY: str | None = os.environ.get("EMERGENT_LLM_KEY")
+AI_API_TOKEN: str | None = os.environ.get("WATCH_DAWG_AI_API_TOKEN")
+ALLOWED_ORIGINS: Final[list[str]] = [
+    origin.strip()
+    for origin in os.environ.get("WATCH_DAWG_ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+MAX_AI_REQUEST_BYTES: Final[int] = 64_000
+MAX_AI_REQUESTS_PER_MINUTE: Final[int] = 10
 SYSTEM_MESSAGE: Final[str] = (
     "You are Watch-Dawg AI, a careful financial transaction audit assistant. "
     "Explain deterministic audit findings, recommend concrete next actions, "
@@ -41,10 +53,10 @@ if not MONGO_URL or not DB_NAME:
 app = FastAPI(title="Watch-Dawg AI API")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 mongo = AsyncIOMotorClient(MONGO_URL)
@@ -57,13 +69,43 @@ class AIAnalyzeRequest(BaseModel):
     report: str = Field(..., max_length=12000)
 
 
+class RequestRateLimiter:
+    """Small process-local ceiling protecting the paid model endpoint."""
+
+    def __init__(self, maximum: int = MAX_AI_REQUESTS_PER_MINUTE) -> None:
+        self.maximum = maximum
+        self._requests: deque[float] = deque()
+        self._lock = threading.Lock()
+
+    def claim(self) -> None:
+        now = time.monotonic()
+        with self._lock:
+            while self._requests and now - self._requests[0] >= 60:
+                self._requests.popleft()
+            if len(self._requests) >= self.maximum:
+                raise HTTPException(
+                    status_code=429,
+                    detail="AI audit rate limit exceeded",
+                    headers={"Retry-After": "60"},
+                )
+            self._requests.append(now)
+
+
+ai_rate_limiter = RequestRateLimiter()
+
+
 @app.get("/api/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "service": "watch-dawg-ai"}
 
 
 @app.post("/api/ai/audit")
-async def ai_audit(request: AIAnalyzeRequest) -> StreamingResponse:
+async def ai_audit(
+    request: AIAnalyzeRequest,
+    authorization: Annotated[str | None, Header()] = None,
+) -> StreamingResponse:
+    require_ai_api_token(AI_API_TOKEN, authorization)
+    ai_rate_limiter.claim()
     api_key = validate_ai_configuration(EMERGENT_LLM_KEY)
     validated_request = validate_ai_audit_request(request)
     session_id = build_session_id()
@@ -85,7 +127,45 @@ def validate_ai_configuration(api_key: str | None) -> str:
     return api_key
 
 
+def require_ai_api_token(
+    configured: str | None,
+    authorization: str | None,
+) -> None:
+    invalid_configuration = (
+        not configured
+        or len(configured) < 32
+        or any(character.isspace() for character in configured)
+    )
+    if invalid_configuration:
+        raise HTTPException(
+            status_code=503,
+            detail="AI audit authentication is not configured",
+        )
+    prefix = "Bearer "
+    supplied = (
+        authorization[len(prefix):]
+        if authorization and authorization.startswith(prefix)
+        else ""
+    )
+    if not supplied or not hmac.compare_digest(supplied, configured):
+        raise HTTPException(
+            status_code=401,
+            detail="A valid bearer token is required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
 def validate_ai_audit_request(request: AIAnalyzeRequest) -> AIAnalyzeRequest:
+    encoded = json.dumps(
+        request.model_dump(mode="json"),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    if len(encoded) > MAX_AI_REQUEST_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail="AI audit request is too large",
+        )
     return request
 
 

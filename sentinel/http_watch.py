@@ -1,25 +1,51 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import ipaddress
 import json
 import socket
+import ssl
 import time
 from html.parser import HTMLParser
-from typing import Any, Protocol
-from urllib.error import HTTPError
+from typing import Any, Callable, Iterable, Protocol
 from urllib.parse import urljoin, urlsplit, urlunsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from .core import Finding, Observation, stable_hash
 
 
 MAX_BODY_BYTES = 2_000_000
+MAX_REDIRECTS = 5
 INVALID_URL_EVIDENCE = "<invalid-url>"
+SAFE_RESPONSE_HEADERS = frozenset({
+    "cache-control",
+    "content-length",
+    "content-security-policy",
+    "content-type",
+    "cross-origin-embedder-policy",
+    "cross-origin-opener-policy",
+    "cross-origin-resource-policy",
+    "permissions-policy",
+    "referrer-policy",
+    "strict-transport-security",
+    "x-content-type-options",
+    "x-frame-options",
+})
+Resolver = Callable[[str, int], Iterable[str]]
 
 
 class HttpFetcher(Protocol):
     def fetch(self, url: str, timeout_seconds: float, max_body_bytes: int) -> dict[str, Any]: ...
+
+
+def _safe_response_headers(headers: Any) -> dict[str, str]:
+    if not hasattr(headers, "items"):
+        return {}
+    return {
+        str(key).lower(): str(value)[:4096]
+        for key, value in headers.items()
+        if str(key).lower() in SAFE_RESPONSE_HEADERS
+    }
 
 
 def sanitize_http_url_for_evidence(value: Any, fallback: str = INVALID_URL_EVIDENCE) -> str:
@@ -39,66 +65,246 @@ def sanitize_http_url_for_evidence(value: Any, fallback: str = INVALID_URL_EVIDE
     return urlunsplit((parsed.scheme.lower(), netloc, parsed.path, "", ""))
 
 
-def validate_public_http_url(url: str) -> None:
+def _http_url_parts(url: str) -> tuple[Any, str, int]:
     parsed = urlsplit(url)
-    if parsed.scheme not in {"http", "https"}:
+    scheme = parsed.scheme.lower()
+    if scheme not in {"http", "https"}:
         raise ValueError("only http and https targets are allowed")
-    if not parsed.hostname or parsed.username or parsed.password:
+    if not parsed.hostname or parsed.username is not None or parsed.password is not None:
         raise ValueError("target URL must contain a hostname and no embedded credentials")
-    addresses = {
+    try:
+        hostname = parsed.hostname.encode("idna").decode("ascii").lower()
+        port = parsed.port or (443 if scheme == "https" else 80)
+    except (UnicodeError, ValueError) as exc:
+        raise ValueError("target URL contains an invalid hostname or port") from exc
+    if any(ord(character) < 33 or ord(character) == 127 for character in hostname):
+        raise ValueError("target URL contains an invalid hostname")
+    return parsed, hostname, port
+
+
+def _default_resolver(hostname: str, port: int) -> Iterable[str]:
+    return {
         item[4][0]
-        for item in socket.getaddrinfo(
-            parsed.hostname,
-            parsed.port or (443 if parsed.scheme == "https" else 80),
-        )
+        for item in socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
     }
+
+
+def _validated_public_addresses(addresses: Iterable[str]) -> list[str]:
+    validated: set[str] = set()
+    for raw_address in addresses:
+        try:
+            address = ipaddress.ip_address(str(raw_address))
+        except ValueError as exc:
+            raise ValueError("target hostname resolved to an invalid address") from exc
+        if not address.is_global or address.is_multicast:
+            raise ValueError("private, loopback, link-local, and reserved targets are blocked")
+        validated.add(str(address))
+    addresses = sorted(validated)
     if not addresses:
         raise ValueError("target hostname did not resolve")
-    for address in addresses:
-        if not ipaddress.ip_address(address).is_global:
-            raise ValueError("private, loopback, link-local, and reserved targets are blocked")
+    return addresses
 
 
-class _SafeRedirectHandler(HTTPRedirectHandler):
-    def redirect_request(self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> Any:
-        validate_public_http_url(urljoin(req.full_url, newurl))
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+def validate_public_http_url(url: str) -> None:
+    """Validate URL syntax and require every address in one DNS answer to be public."""
+    _, hostname, port = _http_url_parts(url)
+    _validated_public_addresses(_default_resolver(hostname, port))
+
+
+def validate_http_url_syntax(url: str) -> None:
+    """Validate an HTTP(S) URL without performing a separate DNS lookup."""
+    _http_url_parts(url)
+
+
+def _origin(url: str) -> tuple[str, str, int]:
+    parsed, hostname, port = _http_url_parts(url)
+    return parsed.scheme.lower(), hostname, port
+
+
+def _host_header(hostname: str, port: int, scheme: str) -> str:
+    displayed_host = f"[{hostname}]" if ":" in hostname else hostname
+    default_port = 443 if scheme == "https" else 80
+    return displayed_host if port == default_port else f"{displayed_host}:{port}"
+
+
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    """HTTP connection whose socket target is an already-vetted numeric address."""
+
+    def __init__(
+        self,
+        hostname: str,
+        port: int,
+        pinned_address: str,
+        timeout: float,
+    ) -> None:
+        super().__init__(hostname, port, timeout=timeout)
+        self._pinned_address = pinned_address
+
+    def connect(self) -> None:
+        self.sock = socket.create_connection(
+            (self._pinned_address, self.port),
+            timeout=self.timeout,
+            source_address=self.source_address,
+        )
+
+
+class _PinnedHTTPSConnection(_PinnedHTTPConnection):
+    """HTTPS connection pinned to an IP while verifying the authorized hostname."""
+
+    default_port = 443
+
+    def __init__(
+        self,
+        hostname: str,
+        port: int,
+        pinned_address: str,
+        timeout: float,
+        context: ssl.SSLContext,
+    ) -> None:
+        super().__init__(hostname, port, pinned_address, timeout)
+        self._context = context
+
+    def connect(self) -> None:
+        super().connect()
+        assert self.sock is not None
+        try:
+            self.sock = self._context.wrap_socket(self.sock, server_hostname=self.host)
+        except Exception:
+            self.sock.close()
+            raise
+
+
+def _read_response_body(
+    response: Any,
+    connection: http.client.HTTPConnection,
+    *,
+    deadline: float,
+    max_body_bytes: int,
+) -> bytes:
+    """Read at most max+1 bytes while enforcing one absolute deadline."""
+    chunks: list[bytes] = []
+    remaining_bytes = max_body_bytes + 1
+    reader = getattr(response, "read1", None)
+    if reader is None:
+        reader = response.read
+    while remaining_bytes:
+        remaining_seconds = deadline - time.monotonic()
+        if remaining_seconds <= 0:
+            raise TimeoutError("HTTP response deadline exceeded")
+        connection_socket = getattr(connection, "sock", None)
+        if connection_socket is not None:
+            connection_socket.settimeout(remaining_seconds)
+        chunk = reader(min(65_536, remaining_bytes))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining_bytes -= len(chunk)
+    return b"".join(chunks)
 
 
 class SafeHttpFetcher:
-    """A bounded, public-network-only HTTP fetcher. It never crawls."""
+    """A bounded HTTP fetcher pinned to one validated DNS answer per request."""
 
     USER_AGENT = "Watch-Dawg-Sentinel/0.1 (+https://github.com/bobhay75/Watch-Dawg-AI)"
 
+    def __init__(
+        self,
+        *,
+        resolver: Resolver | None = None,
+        tls_context: ssl.SSLContext | None = None,
+    ) -> None:
+        self.resolver = resolver or _default_resolver
+        self.tls_context = tls_context or ssl.create_default_context()
+
     def fetch(self, url: str, timeout_seconds: float, max_body_bytes: int) -> dict[str, Any]:
-        validate_public_http_url(url)
-        request = Request(
-            url,
-            headers={"User-Agent": self.USER_AGENT, "Accept": "text/html,application/json;q=0.9,*/*;q=0.5"},
-        )
-        opener = build_opener(_SafeRedirectHandler())
         started = time.monotonic()
-        try:
-            response = opener.open(request, timeout=timeout_seconds)
-        except HTTPError as error:
-            response = error
-        with response:
-            body = response.read(max_body_bytes + 1)
-            elapsed_ms = round((time.monotonic() - started) * 1000, 1)
-            truncated = len(body) > max_body_bytes
-            body = body[:max_body_bytes]
-            headers = {key.lower(): value for key, value in response.headers.items()}
-            charset = response.headers.get_content_charset() or "utf-8"
-            text = body.decode(charset, errors="replace")
-            return {
-                "status": int(response.status),
-                "final_url": response.geturl(),
-                "latency_ms": elapsed_ms,
-                "headers": headers,
-                "body": text,
-                "body_bytes": len(body),
-                "truncated": truncated,
-            }
+        deadline = started + max(float(timeout_seconds), 0.001)
+        current_url = str(url)
+        initial_origin = _origin(current_url)
+
+        for redirect_count in range(MAX_REDIRECTS + 1):
+            response = self._request_once(
+                current_url,
+                deadline=deadline,
+                max_body_bytes=max_body_bytes,
+            )
+            location = response.pop("location", None)
+            if response["status"] not in {301, 302, 303, 307, 308} or not location:
+                response["final_url"] = sanitize_http_url_for_evidence(current_url)
+                response["latency_ms"] = round((time.monotonic() - started) * 1000, 1)
+                return response
+            if redirect_count == MAX_REDIRECTS:
+                raise ValueError(f"redirect limit of {MAX_REDIRECTS} exceeded")
+
+            redirected_url = urljoin(current_url, location)
+            redirected_origin = _origin(redirected_url)
+            if redirected_origin != initial_origin:
+                raise ValueError("cross-origin redirects are blocked")
+            current_url = redirected_url
+
+        raise AssertionError("redirect loop should have returned or raised")
+
+    def _request_once(
+        self,
+        url: str,
+        *,
+        deadline: float,
+        max_body_bytes: int,
+    ) -> dict[str, Any]:
+        parsed, hostname, port = _http_url_parts(url)
+        addresses = _validated_public_addresses(self.resolver(hostname, port))
+        request_target = urlunsplit(("", "", parsed.path or "/", parsed.query, ""))
+        headers = {
+            "Host": _host_header(hostname, port, parsed.scheme.lower()),
+            "User-Agent": self.USER_AGENT,
+            "Accept": "text/html,application/json;q=0.9,*/*;q=0.5",
+            "Connection": "close",
+        }
+        last_error: Exception | None = None
+
+        for address in addresses:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("HTTP request deadline exceeded")
+            if parsed.scheme.lower() == "https":
+                connection: http.client.HTTPConnection = _PinnedHTTPSConnection(
+                    hostname,
+                    port,
+                    address,
+                    remaining,
+                    self.tls_context,
+                )
+            else:
+                connection = _PinnedHTTPConnection(hostname, port, address, remaining)
+            try:
+                connection.request("GET", request_target, headers=headers)
+                response = connection.getresponse()
+                body = _read_response_body(
+                    response,
+                    connection,
+                    deadline=deadline,
+                    max_body_bytes=max_body_bytes,
+                )
+                truncated = len(body) > max_body_bytes
+                body = body[:max_body_bytes]
+                response_headers = _safe_response_headers(response.headers)
+                charset = response.headers.get_content_charset() or "utf-8"
+                return {
+                    "status": int(response.status),
+                    "headers": response_headers,
+                    "body": body.decode(charset, errors="replace"),
+                    "body_bytes": len(body),
+                    "truncated": truncated,
+                    "location": response.headers.get("Location"),
+                }
+            except (ConnectionError, http.client.HTTPException, OSError, TimeoutError) as exc:
+                last_error = exc
+            finally:
+                connection.close()
+
+        if last_error is not None:
+            raise last_error
+        raise ConnectionError("no validated address could be contacted")
 
 
 class _HtmlFactsParser(HTMLParser):
@@ -183,7 +389,7 @@ class HttpWatchPack:
             )
             parser = _HtmlFactsParser()
             parser.feed(body)
-            headers = dict(response.get("headers", {}))
+            headers = _safe_response_headers(response.get("headers", {}))
             facts = {
                 **response,
                 "headers": headers,

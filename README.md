@@ -17,8 +17,8 @@ The product principle is simple: **work happens in the field, Watch-Dawg watches
   or credential attempts.
 - Redacted local secret-exposure checks that never return matched credential
   values.
-- SHA-256-bound financial correction proposals that require exact human
-  approval and produce no external write.
+- SHA-256-bound financial correction proposals that recompute allowed changes,
+  require a trusted approval verifier, and produce no external write.
 - A government evaluator evidence bundle with source hashes, SPDX SBOM, test
   commands, and a candid control-gap crosswalk.
 - Authorized, manifest-only AI-system risk review for immutable model revisions,
@@ -124,6 +124,7 @@ Set backend variables:
 export MONGO_URL='YOUR_MONGODB_URL'
 export DB_NAME='watchdawg'
 export EMERGENT_LLM_KEY='YOUR_KEY'
+export WATCH_DAWG_AI_API_TOKEN='GENERATE_A_RANDOM_32_PLUS_CHARACTER_SECRET'
 ```
 
 Set frontend variables:
@@ -132,9 +133,12 @@ Set frontend variables:
 export HOST='0.0.0.0'
 export PORT='3000'
 export REACT_APP_BACKEND_URL='http://localhost:8001'
+export WATCH_DAWG_AI_API_TOKEN='THE_SAME_SERVER_SIDE_SECRET'
 ```
 
-Never commit `.env` files, API keys, credentials, or service-account secrets.
+The frontend proxy injects this token server-side; never expose it to browser
+JavaScript. Never commit `.env` files, API keys, credentials, or
+service-account secrets.
 
 Start the backend:
 

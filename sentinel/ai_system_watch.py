@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import stat
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -11,6 +13,15 @@ from .core import Finding, Observation, stable_hash
 
 
 MAX_MANIFEST_BYTES = 256_000
+MAX_MODELS = 32
+MAX_TOOLS = 64
+MAX_CRYPTO_ENTRIES = 64
+MAX_OPERATIONS_PER_TOOL = 16
+MAX_MANIFEST_DEPTH = 32
+MAX_MANIFEST_NODES = 4_096
+MAX_SECRET_CANDIDATES = 32
+MAX_FINDINGS = 192
+MAX_EVIDENCE_PATH_CHARS = 256
 IMMUTABLE_REVISION = re.compile(r"^(?:sha256:[0-9a-f]{64}|[0-9a-f]{40})$")
 SENSITIVE_KEY = re.compile(r"(?i)(?:password|passwd|secret|token|api[_-]?key|credential)")
 ALLOWED_SECRET_REFERENCES = ("secret://", "env://", "sm://")
@@ -24,6 +35,27 @@ HIGH_IMPACT_OPERATIONS = {
     "permission-change",
     "write",
 }
+KNOWN_TOOL_OPERATIONS = HIGH_IMPACT_OPERATIONS | {
+    "analyze",
+    "draft",
+    "read",
+    "retrieve",
+    "search",
+    "summarize",
+}
+BOOLEAN_CONTROLS = (
+    "deny_unknown_tools",
+    "prompt_injection_defense",
+    "output_validation",
+    "secrets_via_broker",
+    "logging_redaction",
+    "kill_switch",
+    "model_change_approval",
+    "vendor_inventory",
+    "training_data_provenance",
+)
+MODEL_KEYS = {"id", "provider", "revision", "trust_remote_code"}
+TOOL_KEYS = {"id", "operations", "human_approval"}
 
 
 def _parse_expiry(value: Any, label: str) -> datetime:
@@ -38,22 +70,198 @@ def _parse_expiry(value: Any, label: str) -> datetime:
     return parsed
 
 
-def _secret_value_paths(value: Any, prefix: str = "$") -> list[dict[str, str]]:
+def _read_manifest_beneath(root: Path, raw_path: str) -> tuple[str, bytes]:
+    path = Path(raw_path)
+    parts = path.parts
+    if path.is_absolute() or not parts or any(part in {"", ".", ".."} for part in parts):
+        raise ValueError("AI system manifest path escapes the configured root")
+
+    root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    opened: list[int] = []
+    directory_fd = root_fd
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    try:
+        for part in parts[:-1]:
+            directory_fd = os.open(
+                part,
+                os.O_RDONLY | os.O_DIRECTORY | nofollow,
+                dir_fd=directory_fd,
+            )
+            opened.append(directory_fd)
+        file_fd = os.open(parts[-1], os.O_RDONLY | nofollow, dir_fd=directory_fd)
+        opened.append(file_fd)
+        metadata = os.fstat(file_fd)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError("AI system manifest must be a regular file")
+
+        chunks: list[bytes] = []
+        remaining = MAX_MANIFEST_BYTES + 1
+        while remaining:
+            chunk = os.read(file_fd, min(65_536, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b"".join(chunks)
+        if len(raw) > MAX_MANIFEST_BYTES:
+            raise ValueError(f"AI system manifest exceeds {MAX_MANIFEST_BYTES} bytes")
+        return Path(*parts).as_posix(), raw
+    except OSError as exc:
+        raise ValueError("AI system manifest cannot be safely opened") from exc
+    finally:
+        for descriptor in reversed(opened):
+            os.close(descriptor)
+        os.close(root_fd)
+
+
+def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("AI system manifest contains a duplicate JSON object key")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"AI system manifest contains non-standard JSON constant {value}")
+
+
+def _bounded_string(
+    value: Any,
+    label: str,
+    *,
+    maximum: int,
+    required: bool = True,
+) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{label} must be a string")
+    clean = value.strip()
+    if required and not clean:
+        raise ValueError(f"{label} must be a non-empty string")
+    if len(clean) > maximum:
+        raise ValueError(f"{label} exceeds {maximum} characters")
+    return clean
+
+
+def _optional_manifest_string(
+    container: dict[str, Any],
+    key: str,
+    *,
+    maximum: int,
+    default: str = "",
+) -> str:
+    if key not in container:
+        return default
+    return _bounded_string(container[key], key, maximum=maximum, required=False)
+
+
+def _bounded_path(prefix: str, key: str) -> str:
+    segment = re.sub(r"[^A-Za-z0-9_-]", "_", key)[:64] or "field"
+    path = f"{prefix}.{segment}"
+    if len(path) <= MAX_EVIDENCE_PATH_CHARS:
+        return path
+    suffix = stable_hash(path)[:12]
+    return f"{path[:MAX_EVIDENCE_PATH_CHARS - 16]}...#{suffix}"
+
+
+def _secret_value_paths(value: Any) -> tuple[list[dict[str, str]], int]:
+    """Return bounded, path-only evidence for inline secret-like string fields."""
+
     matches: list[dict[str, str]] = []
-    if isinstance(value, dict):
-        for key, child in value.items():
-            path = f"{prefix}.{key}"
-            if SENSITIVE_KEY.search(str(key)) and isinstance(child, str):
-                if child and not child.startswith(ALLOWED_SECRET_REFERENCES):
-                    matches.append({
-                        "path": path,
-                        "value_sha256": stable_hash(child)[:16],
-                    })
-            matches.extend(_secret_value_paths(child, path))
-    elif isinstance(value, list):
-        for index, child in enumerate(value):
-            matches.extend(_secret_value_paths(child, f"{prefix}[{index}]"))
-    return matches
+    overflow = 0
+    nodes = 0
+    stack: list[tuple[Any, str, int]] = [(value, "$", 0)]
+    while stack:
+        current, prefix, depth = stack.pop()
+        nodes += 1
+        if nodes > MAX_MANIFEST_NODES:
+            raise ValueError(f"AI system manifest exceeds {MAX_MANIFEST_NODES} JSON nodes")
+        if depth > MAX_MANIFEST_DEPTH:
+            raise ValueError(f"AI system manifest exceeds nesting depth {MAX_MANIFEST_DEPTH}")
+        if isinstance(current, dict):
+            if nodes + len(stack) + len(current) > MAX_MANIFEST_NODES:
+                raise ValueError(f"AI system manifest exceeds {MAX_MANIFEST_NODES} JSON nodes")
+            if current and depth == MAX_MANIFEST_DEPTH:
+                raise ValueError(f"AI system manifest exceeds nesting depth {MAX_MANIFEST_DEPTH}")
+            for key, child in reversed(list(current.items())):
+                path = _bounded_path(prefix, key)
+                if SENSITIVE_KEY.search(key) and isinstance(child, str):
+                    if child and not child.startswith(ALLOWED_SECRET_REFERENCES):
+                        candidate = {
+                            "path": path,
+                            "rule": "sensitive-key-with-inline-string",
+                        }
+                        if len(matches) < MAX_SECRET_CANDIDATES:
+                            matches.append(candidate)
+                        else:
+                            overflow += 1
+                stack.append((child, path, depth + 1))
+        elif isinstance(current, list):
+            if nodes + len(stack) + len(current) > MAX_MANIFEST_NODES:
+                raise ValueError(f"AI system manifest exceeds {MAX_MANIFEST_NODES} JSON nodes")
+            if current and depth == MAX_MANIFEST_DEPTH:
+                raise ValueError(f"AI system manifest exceeds nesting depth {MAX_MANIFEST_DEPTH}")
+            for index in range(len(current) - 1, -1, -1):
+                stack.append((current[index], f"{prefix}[{index}]", depth + 1))
+    return matches, overflow
+
+
+def _validate_model(model: Any, index: int) -> dict[str, Any]:
+    label = f"models[{index}]"
+    if not isinstance(model, dict):
+        raise ValueError(f"{label} must be an object")
+    missing = MODEL_KEYS - model.keys()
+    unexpected = model.keys() - MODEL_KEYS
+    if missing:
+        raise ValueError(f"{label} is missing required fields")
+    if unexpected:
+        raise ValueError(f"{label} contains unsupported fields")
+    if type(model["trust_remote_code"]) is not bool:
+        raise ValueError(f"{label}.trust_remote_code must be a boolean")
+    return {
+        "id": _bounded_string(model["id"], f"{label}.id", maximum=100),
+        "provider": _bounded_string(model["provider"], f"{label}.provider", maximum=100),
+        "immutable_revision": _bounded_string(
+            model["revision"], f"{label}.revision", maximum=80
+        ),
+        "remote_code": model["trust_remote_code"],
+    }
+
+
+def _validate_tool(tool: Any, index: int) -> dict[str, Any]:
+    label = f"tools[{index}]"
+    if not isinstance(tool, dict):
+        raise ValueError(f"{label} must be an object")
+    missing = TOOL_KEYS - tool.keys()
+    unexpected = tool.keys() - TOOL_KEYS
+    if missing:
+        raise ValueError(f"{label} is missing required fields")
+    if unexpected:
+        raise ValueError(f"{label} contains unsupported fields")
+    if type(tool["human_approval"]) is not bool:
+        raise ValueError(f"{label}.human_approval must be a boolean")
+    operations = tool["operations"]
+    if not isinstance(operations, list):
+        raise ValueError(f"{label}.operations must be a list of strings")
+    if not operations:
+        raise ValueError(f"{label}.operations must not be empty")
+    if len(operations) > MAX_OPERATIONS_PER_TOOL:
+        raise ValueError(
+            f"{label}.operations permits at most {MAX_OPERATIONS_PER_TOOL} entries"
+        )
+    normalized: set[str] = set()
+    for operation_index, operation in enumerate(operations):
+        operation_label = f"{label}.operations[{operation_index}]"
+        canonical = _bounded_string(operation, operation_label, maximum=40).casefold()
+        if canonical not in KNOWN_TOOL_OPERATIONS:
+            raise ValueError(f"{operation_label} is not a recognized operation")
+        normalized.add(canonical)
+    return {
+        "id": _bounded_string(tool["id"], f"{label}.id", maximum=100),
+        "operations": sorted(normalized),
+        "human_approval": tool["human_approval"],
+    }
 
 
 class AiSystemRiskWatchPack:
@@ -80,95 +288,127 @@ class AiSystemRiskWatchPack:
             raise ValueError("AI system authorization path must exactly match the target")
         _parse_expiry(authorization.get("expires_at"), "AI system")
 
-        candidate = (self.root / raw_path).resolve()
-        if candidate != self.root and self.root not in candidate.parents:
-            raise ValueError("AI system manifest path escapes the configured root")
-        if not candidate.is_file():
-            raise ValueError("AI system manifest does not exist")
-        if candidate.stat().st_size > MAX_MANIFEST_BYTES:
-            raise ValueError(f"AI system manifest exceeds {MAX_MANIFEST_BYTES} bytes")
-        raw = candidate.read_bytes()
-        manifest = json.loads(raw.decode("utf-8"))
+        relative_path, raw = _read_manifest_beneath(self.root, raw_path)
+        try:
+            manifest = json.loads(
+                raw.decode("utf-8"),
+                object_pairs_hook=_reject_duplicate_keys,
+                parse_constant=_reject_json_constant,
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+            raise ValueError("AI system manifest is not valid bounded JSON") from exc
         if not isinstance(manifest, dict):
             raise ValueError("AI system manifest must contain a JSON object")
+
+        embedded_secrets, secret_candidate_overflow = _secret_value_paths(manifest)
 
         models = manifest.get("models", [])
         tools = manifest.get("tools", [])
         controls = manifest.get("controls", {})
         if not isinstance(models, list) or not isinstance(tools, list) or not isinstance(controls, dict):
             raise ValueError("AI system manifest models, tools, or controls have invalid types")
+        if len(models) > MAX_MODELS:
+            raise ValueError(f"AI system manifest permits at most {MAX_MODELS} models")
+        if len(tools) > MAX_TOOLS:
+            raise ValueError(f"AI system manifest permits at most {MAX_TOOLS} tools")
+
+        safe_models = [_validate_model(model, index) for index, model in enumerate(models)]
+        safe_tools = [_validate_tool(tool, index) for index, tool in enumerate(tools)]
+        model_ids = [model["id"].casefold() for model in safe_models]
+        tool_ids = [tool["id"].casefold() for tool in safe_tools]
+        if len(model_ids) != len(set(model_ids)):
+            raise ValueError("AI system manifest model ids must be unique")
+        if len(tool_ids) != len(set(tool_ids)):
+            raise ValueError("AI system manifest tool ids must be unique")
+
+        for key in BOOLEAN_CONTROLS:
+            if key in controls and type(controls[key]) is not bool:
+                raise ValueError(f"controls.{key} must be a boolean")
+        network_egress = controls.get("network_egress")
+        if network_egress is not None:
+            network_egress = _bounded_string(
+                network_egress,
+                "controls.network_egress",
+                maximum=40,
+                required=False,
+            )
+
         resilience = controls.get("resilience", {})
         if not isinstance(resilience, dict):
-            resilience = {}
+            raise ValueError("controls.resilience must be an object")
+        incident_runbook = _optional_manifest_string(
+            resilience,
+            "incident_runbook",
+            maximum=160,
+        )
+        for objective in ("rto_minutes", "rpo_minutes"):
+            if objective in resilience and type(resilience[objective]) is not int:
+                raise ValueError(f"controls.resilience.{objective} must be an integer")
+        restore_tested_at = _optional_manifest_string(
+            resilience,
+            "restore_tested_at",
+            maximum=64,
+        )
+
         crypto_inventory = controls.get("crypto_inventory", [])
         if not isinstance(crypto_inventory, list):
-            crypto_inventory = []
-        safe_controls = {
-            key: controls.get(key)
-            for key in (
-                "deny_unknown_tools",
-                "network_egress",
-                "prompt_injection_defense",
-                "output_validation",
-                "secrets_via_broker",
-                "logging_redaction",
-                "kill_switch",
-                "model_change_approval",
-                "vendor_inventory",
-                "training_data_provenance",
+            raise ValueError("controls.crypto_inventory must be a list")
+        if len(crypto_inventory) > MAX_CRYPTO_ENTRIES:
+            raise ValueError(
+                f"AI system manifest permits at most {MAX_CRYPTO_ENTRIES} crypto entries"
             )
-        }
+        safe_crypto_inventory: list[dict[str, Any]] = []
+        for index, item in enumerate(crypto_inventory):
+            if not isinstance(item, dict):
+                raise ValueError(f"controls.crypto_inventory[{index}] must be an object")
+            use = _optional_manifest_string(item, "use", maximum=80)
+            algorithm = _optional_manifest_string(item, "algorithm", maximum=80)
+            owner = _optional_manifest_string(item, "owner", maximum=160)
+            migration_trigger = _optional_manifest_string(
+                item,
+                "migration_trigger",
+                maximum=240,
+            )
+            safe_crypto_inventory.append({
+                "use": use,
+                "algorithm": algorithm,
+                "owner_present": bool(owner),
+                "migration_trigger_present": bool(migration_trigger),
+            })
+
+        safe_controls = {key: controls.get(key) for key in BOOLEAN_CONTROLS}
+        safe_controls["network_egress"] = network_egress
         safe_controls["resilience"] = {
-            "incident_runbook_present": bool(resilience.get("incident_runbook")),
+            "incident_runbook_present": bool(incident_runbook),
             "rto_minutes": resilience.get("rto_minutes"),
             "rpo_minutes": resilience.get("rpo_minutes"),
-            "restore_tested_at": resilience.get("restore_tested_at"),
+            "restore_tested_at": restore_tested_at,
         }
-        safe_controls["crypto_inventory"] = [
-            {
-                "use": str(item.get("use", ""))[:80],
-                "algorithm": str(item.get("algorithm", ""))[:80],
-                "owner_present": bool(item.get("owner")),
-                "migration_trigger_present": bool(item.get("migration_trigger")),
-            }
-            for item in crypto_inventory
-            if isinstance(item, dict)
-        ]
+        safe_controls["crypto_inventory"] = safe_crypto_inventory
         facts = {
             "manifest_sha256": hashlib.sha256(raw).hexdigest(),
-            "system_id": str(manifest.get("system_id", ""))[:100],
-            "version": str(manifest.get("version", ""))[:40],
-            "owner_present": bool(manifest.get("owner")),
-            "purpose_present": bool(manifest.get("purpose")),
-            "data_classification": str(manifest.get("data_classification", "unspecified"))[:40],
-            "models": [
-                {
-                    "id": str(model.get("id", "unnamed"))[:100],
-                    "provider": str(model.get("provider", "unspecified"))[:100],
-                    "immutable_revision": str(model.get("revision", ""))[:80],
-                    "remote_code": bool(model.get("trust_remote_code", False)),
-                }
-                for model in models
-                if isinstance(model, dict)
-            ],
-            "tools": [
-                {
-                    "id": str(tool.get("id", "unnamed"))[:100],
-                    "operations": sorted({str(item) for item in tool.get("operations", [])}),
-                    "human_approval": bool(tool.get("human_approval", False)),
-                }
-                for tool in tools
-                if isinstance(tool, dict)
-            ],
+            "system_id": _optional_manifest_string(manifest, "system_id", maximum=100),
+            "version": _optional_manifest_string(manifest, "version", maximum=40),
+            "owner_present": bool(_optional_manifest_string(manifest, "owner", maximum=160)),
+            "purpose_present": bool(_optional_manifest_string(manifest, "purpose", maximum=500)),
+            "data_classification": _optional_manifest_string(
+                manifest,
+                "data_classification",
+                maximum=40,
+                default="unspecified",
+            ),
+            "models": safe_models,
+            "tools": safe_tools,
             "controls": safe_controls,
-            "embedded_secret_candidates": _secret_value_paths(manifest),
+            "embedded_secret_candidates": embedded_secrets,
+            "embedded_secret_candidate_overflow": secret_candidate_overflow,
         }
         return Observation(
             target_id=str(target["id"]),
             kind=self.kind,
             ok=True,
             facts=facts,
-            evidence=[f"manifest://{candidate.relative_to(self.root).as_posix()}#{facts['manifest_sha256']}"],
+            evidence=[f"manifest://{relative_path}#{facts['manifest_sha256']}"],
         )
 
     def evaluate(
@@ -248,7 +488,7 @@ class AiSystemRiskWatchPack:
         if not isinstance(resilience, dict) or not resilience.get("incident_runbook_present"):
             findings.append(self._finding(current, "AI_INCIDENT_RUNBOOK_MISSING", "medium", "AI incident runbook is not recorded", "The manifest does not identify an incident runbook.", {"control": "resilience.incident_runbook"}))
         if not isinstance(resilience, dict) or not all(
-            isinstance(resilience.get(key), int) and resilience[key] > 0
+            type(resilience.get(key)) is int and resilience[key] > 0
             for key in ("rto_minutes", "rpo_minutes")
         ):
             findings.append(self._finding(current, "AI_RECOVERY_OBJECTIVES_MISSING", "medium", "AI recovery objectives are not measurable", "Positive recovery-time and recovery-point targets are required.", {"controls": ["resilience.rto_minutes", "resilience.rpo_minutes"]}))
@@ -285,6 +525,34 @@ class AiSystemRiskWatchPack:
                 "A credential-like field contains a value instead of an approved secret reference.",
                 candidate,
             ))
+        secret_overflow = facts.get("embedded_secret_candidate_overflow", 0)
+        if type(secret_overflow) is int and secret_overflow > 0:
+            findings.append(self._finding(
+                current,
+                "AI_SECRET_CANDIDATES_TRUNCATED",
+                "critical",
+                "Additional embedded-credential candidates were summarized",
+                "The bounded evidence limit was reached; remove all inline secret-like values and review the source manifest.",
+                {
+                    "rule": "sensitive-key-with-inline-string",
+                    "omitted_candidate_count": secret_overflow,
+                    "reported_candidate_limit": MAX_SECRET_CANDIDATES,
+                },
+            ))
+
+        if len(findings) > MAX_FINDINGS:
+            omitted = len(findings) - (MAX_FINDINGS - 1)
+            findings = findings[:MAX_FINDINGS - 1] + [self._finding(
+                current,
+                "AI_FINDINGS_TRUNCATED",
+                "critical",
+                "AI risk findings exceeded the bounded output limit",
+                "Additional findings were summarized; the manifest requires human review.",
+                {
+                    "omitted_finding_count": omitted,
+                    "reported_finding_limit": MAX_FINDINGS,
+                },
+            )]
         return findings
 
     @staticmethod

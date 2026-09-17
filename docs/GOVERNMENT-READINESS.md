@@ -35,12 +35,16 @@ The secret-exposure pack:
 - requires an authorization record, exact path scope, expiration, and the
   `read-local-files` method;
 - limits file count and size;
-- reports the rule, file, line, and a truncated SHA-256 fingerprint;
+- reports the rule, file, line, and a location-derived occurrence ID without
+  exporting the value or a value-derived guessing oracle;
 - never returns the matched credential value.
 
 The financial correction path creates a deterministic proposal tied to a
-SHA-256 digest of the source ledger. Application requires an exact plan digest,
-an explicit `APPROVE` decision, and a named approver. It returns a corrected
+SHA-256 digest of the source ledger. Application recomputes that proposal from
+the unchanged source, permits only the expected finite `vault` and `spend`
+changes, and requires an exact plan digest, an explicit `APPROVE` decision, a
+named approver, and a caller-supplied trusted approval verifier. Missing,
+rejected, future-dated, or expired approvals fail closed. It returns a corrected
 copy and audit receipt; it does not write to a bank, accounting system, or
 external record.
 
@@ -115,7 +119,13 @@ python scripts/generate_government_evidence.py \
   --output build/government-evidence
 ```
 
-Then run the verification printed in `evidence-manifest.json`. CI builds the
-same bundle as a downloadable artifact for each relevant pull request and push
-to `main`. The bundle now includes `supply-chain-report.json`; warnings must be
-reviewed rather than interpreted as a clean bill of health.
+Verify its recorded artifact hashes with:
+
+```bash
+python scripts/generate_government_evidence.py \
+  --verify build/government-evidence
+```
+
+CI builds and verifies the same bundle for every pull request and each push to
+`main`. The bundle includes `supply-chain-report.json`; it is review evidence,
+not a certification, authorization, attestation, or cryptographic signature.

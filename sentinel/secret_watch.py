@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+import os
+import stat
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -23,6 +25,50 @@ RULES = (
         "high",
     ),
 )
+
+
+def _read_bounded_regular_file(root_fd: int, raw_path: str) -> tuple[str, bytes]:
+    path = Path(raw_path)
+    parts = path.parts
+    if path.is_absolute() or not parts or any(part in {"", ".", ".."} for part in parts):
+        raise ValueError("secret exposure path escapes the configured root")
+
+    opened: list[int] = []
+    directory_fd = root_fd
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    try:
+        for part in parts[:-1]:
+            directory_fd = os.open(
+                part,
+                os.O_RDONLY | os.O_DIRECTORY | nofollow,
+                dir_fd=directory_fd,
+            )
+            opened.append(directory_fd)
+        file_fd = os.open(parts[-1], os.O_RDONLY | nofollow, dir_fd=directory_fd)
+        opened.append(file_fd)
+        metadata = os.fstat(file_fd)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError(f"secret exposure path is not a regular file: {raw_path}")
+        if metadata.st_size > MAX_FILE_BYTES:
+            raise ValueError(f"secret exposure file exceeds {MAX_FILE_BYTES} bytes: {raw_path}")
+
+        chunks: list[bytes] = []
+        remaining = MAX_FILE_BYTES + 1
+        while remaining:
+            chunk = os.read(file_fd, min(65_536, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        content = b"".join(chunks)
+        if len(content) > MAX_FILE_BYTES:
+            raise ValueError(f"secret exposure file exceeds {MAX_FILE_BYTES} bytes: {raw_path}")
+        return Path(*parts).as_posix(), content
+    except OSError as exc:
+        raise ValueError(f"secret exposure file cannot be safely opened: {raw_path}") from exc
+    finally:
+        for descriptor in reversed(opened):
+            os.close(descriptor)
 
 
 class SecretExposureWatchPack:
@@ -61,28 +107,29 @@ class SecretExposureWatchPack:
 
         matches: list[dict[str, Any]] = []
         inspected: list[str] = []
-        for raw_path in paths:
-            candidate = (self.root / str(raw_path)).resolve()
-            if candidate != self.root and self.root not in candidate.parents:
-                raise ValueError("secret exposure path escapes the configured root")
-            if not candidate.is_file():
-                raise ValueError(f"secret exposure file does not exist: {raw_path}")
-            if candidate.stat().st_size > MAX_FILE_BYTES:
-                raise ValueError(f"secret exposure file exceeds {MAX_FILE_BYTES} bytes: {raw_path}")
-            relative = candidate.relative_to(self.root).as_posix()
-            inspected.append(relative)
-            text = candidate.read_text(encoding="utf-8", errors="replace")
-            for line_number, line in enumerate(text.splitlines(), start=1):
-                for rule_name, pattern, severity in RULES:
-                    for match in pattern.finditer(line):
-                        secret_value = match.group(1) if match.lastindex else match.group(0)
-                        matches.append({
-                            "path": relative,
-                            "line": line_number,
-                            "rule": rule_name,
-                            "severity": severity,
-                            "match_sha256": stable_hash(secret_value)[:16],
-                        })
+        root_fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            for raw_path in paths:
+                if not isinstance(raw_path, str) or not raw_path:
+                    raise ValueError("secret exposure paths must be non-empty strings")
+                relative, content = _read_bounded_regular_file(root_fd, raw_path)
+                inspected.append(relative)
+                text = content.decode("utf-8", errors="replace")
+                for line_number, line in enumerate(text.splitlines(), start=1):
+                    for rule_name, pattern, severity in RULES:
+                        for _match in pattern.finditer(line):
+                            occurrence_id = stable_hash(
+                                f"{relative}\0{line_number}\0{rule_name}"
+                            )[:16]
+                            matches.append({
+                                "path": relative,
+                                "line": line_number,
+                                "rule": rule_name,
+                                "severity": severity,
+                                "occurrence_id": occurrence_id,
+                            })
+        finally:
+            os.close(root_fd)
         return Observation(
             target_id=str(target["id"]),
             kind=self.kind,
@@ -99,13 +146,13 @@ class SecretExposureWatchPack:
     ) -> list[Finding]:
         findings: list[Finding] = []
         for match in current.facts["redacted_matches"]:
-            location = f"{match['path']}:{match['line']}:{match['match_sha256']}"
+            location = f"{match['path']}:{match['line']}:{match['occurrence_id']}"
             findings.append(Finding(
                 target_id=current.target_id,
                 code=f"SECRET_EXPOSURE_{match['rule']}_{stable_hash(location)[:12]}",
                 severity=match["severity"],
                 title="Potential credential material is stored in an inspected file",
-                detail="A secret-pattern rule matched. The value was hashed and omitted from all output.",
+                detail="A secret-pattern rule matched. The value was omitted from all output.",
                 evidence=match,
             ))
         return findings

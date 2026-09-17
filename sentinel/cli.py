@@ -30,6 +30,12 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def exit_code_for_result(result: dict[str, Any], fail_on_alert: bool) -> int:
+    """Fail on current unhealthy state, not only newly emitted events."""
+    has_alert = bool(result.get("notify")) or not result.get("healthy", False)
+    return 2 if fail_on_alert and has_alert else 0
+
+
 def main() -> int:
     args = build_parser().parse_args()
     config = load_config(args.config)
@@ -50,7 +56,7 @@ def main() -> int:
     )
     result = engine.run(config["targets"])
     print(json.dumps(result, indent=2, sort_keys=True))
-    return 2 if args.fail_on_alert and result["notify"] else 0
+    return exit_code_for_result(result, args.fail_on_alert)
 
 
 if __name__ == "__main__":
