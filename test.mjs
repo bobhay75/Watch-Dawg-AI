@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import{auditAllocation,reconcile,dawScore,runWatchDawg,explainAudit,sampleScenarios,createCorrectionPlan,applyApprovedCorrectionPlan}from'./watchdawg.js';
 
 assert.equal(auditAllocation({gross:500,rate:.1,vault:50,spend:450}).status,'VERIFIED');
@@ -51,6 +52,21 @@ assert.match(explainAudit(anomalyRun),/Review queue/);
 const invalidJsonShape=runWatchDawg(null);
 assert.equal(invalidJsonShape.mode,'transaction');
 assert.equal(invalidJsonShape.status,'REVIEW');
+const publicDemo=fs.readFileSync(new URL('./public-demo.html',import.meta.url),'utf8');
+for(const id of ['demo','jump','score','headline','audit','s1','s2','s3','s4','approve','live','target','auth','hunt','liveout','proof','sentinel-field']){
+  assert.match(publicDemo,new RegExp('id="'+id+'"'),'public demo must retain #'+id);
+}
+assert.match(publicDemo,/prefers-reduced-motion/,'public demo must respect reduced motion');
+assert.match(publicDemo,/aria-live="polite"/,'dynamic demo output must be announced');
+assert.match(publicDemo,/id="score"[^>]*aria-labelledby="score-label"[^>]*>—<\/output>/,'the DAWG score must start unknown and have an accessible name');
+assert.match(publicDemo,/id="headline">SIMULATION READY</,'the demo must not claim an audit result before it runs');
+assert.doesNotMatch(publicDemo,/>System standing watch</,'the public demo must not imply active monitoring before a run');
+assert.doesNotMatch(publicDemo,/Run the 60-second hunt/,'the demo call to action must not promise a false duration');
+assert.match(publicDemo,/id="sequence-title">Watch-Dawg operating sequence<\/h2>/,'the operating sequence must preserve the heading hierarchy');
+assert.match(publicDemo,/byId\("target"\)\.focus\(\{ preventScroll: true \}\)/,'the authorized-site shortcut must move keyboard focus to the target field');
+assert.match(publicDemo,/from\s+["']\.\/watchdawg\.js["']/,'public demo must use the tested audit core');
+assert.match(publicDemo,/I own this target or have explicit authorization/,'live intake must keep its authorization gate');
+assert.match(publicDemo,/No intrusive scan was launched from your browser/,'live intake must state its defensive boundary');
 
 const correctionSource={opening:{spendable:300,vaulted:40},transactions:[
   {id:'GV-3001',type:'Deposit',gross:500,rate:.1,vault:20,spend:480},
