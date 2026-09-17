@@ -1,0 +1,45 @@
+name: Build government evaluation evidence
+
+on:
+  pull_request:
+    paths:
+      - "sentinel/**"
+      - "scripts/generate_government_evidence.py"
+      - "docs/**"
+      - "SECURITY.md"
+      - "watchdawg.js"
+      - "test.mjs"
+      - ".github/workflows/government-evidence.yml"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify source
+        run: |
+          npm test
+          python -m compileall -q sentinel scripts
+          python -m unittest discover -s sentinel/tests -v
+          bash -n sentinel/scripts/*.sh
+      - name: Build evidence bundle
+        run: python scripts/generate_government_evidence.py --output build/government-evidence
+      - name: Upload evaluator artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: government-evaluation-evidence-${{ github.sha }}
+          path: build/government-evidence
+          if-no-files-found: error
+          retention-days: 30

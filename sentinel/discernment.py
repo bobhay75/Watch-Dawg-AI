@@ -84,6 +84,30 @@ ACTION_CATALOG: dict[str, dict[str, str]] = {
         "success_metric": "Sensitive resources remain unavailable and repeat probe traffic is contained without blocking valid users.",
         "verification": "Recheck exposed paths, patch state, blocked events, and legitimate-user error rates.",
     },
+    "UNEXPECTED_OPEN_PORT": {
+        "deficit": "A reachable network service is outside the approved service baseline.",
+        "why_it_matters": "Unnecessary exposed services increase attack surface and operating uncertainty.",
+        "preventive_action": "Confirm ownership and purpose, then close, restrict, or formally approve the service through change control.",
+        "prosperity_lever": "Reduce avoidable exposure and the support cost of undocumented infrastructure.",
+        "success_metric": "Every reachable service is documented, necessary, owner-approved, and access-restricted.",
+        "verification": "Repeat the same authorized TCP checks and compare them with the approved service inventory.",
+    },
+    "EXPECTED_SERVICE_UNREACHABLE": {
+        "deficit": "An approved network service is not reachable at its expected endpoint.",
+        "why_it_matters": "The condition may represent an outage, routing change, or stale service inventory.",
+        "preventive_action": "Confirm intended availability, routing, firewall policy, and the approved service baseline.",
+        "prosperity_lever": "Restore dependable service delivery or remove obsolete operating assumptions.",
+        "success_metric": "The service is reachable as approved or the baseline is updated through change control.",
+        "verification": "Repeat the authorized check after the service or baseline correction.",
+    },
+    "SECRET_EXPOSURE": {
+        "deficit": "Potential credential material exists in a reviewed file.",
+        "why_it_matters": "Stored credentials can enable unauthorized access and complicate incident containment.",
+        "preventive_action": "Validate the match privately, revoke or rotate confirmed credentials, remove them from source and history, and use an approved secret store.",
+        "prosperity_lever": "Reduce breach exposure and avoid preventable incident and recovery costs.",
+        "success_metric": "The credential is invalidated, absent from reviewed files, and supplied only through the approved secret boundary.",
+        "verification": "Re-run the redacted exposure check and retain rotation and removal records without storing the credential.",
+    },
 }
 
 

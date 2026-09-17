@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "assertion": "Candidate evidence crosswalk only; not a compliance determination.",
+  "controls": [
+    {
+      "capability": "Explicit authorization and method scope",
+      "candidate_nist_800_53_families": ["AC", "CA"],
+      "status": "implemented-for-new-active-packs",
+      "evidence": ["sentinel/service_watch.py", "sentinel/secret_watch.py", "sentinel/tests/test_authorized_controls.py"]
+    },
+    {
+      "capability": "Least-privilege restricted profile API",
+      "candidate_nist_800_53_families": ["AC", "IA", "SC"],
+      "status": "partial",
+      "evidence": ["sentinel/api.py", "sentinel/tests/test_api.py", "sentinel/scripts/deploy-cloud-run-staging.sh"]
+    },
+    {
+      "capability": "Evidence minimization and credential redaction",
+      "candidate_nist_800_53_families": ["AU", "IA", "SI"],
+      "status": "implemented-for-secret-exposure-output",
+      "evidence": ["sentinel/secret_watch.py", "sentinel/tests/test_authorized_controls.py"]
+    },
+    {
+      "capability": "Human-approved financial correction plan",
+      "candidate_nist_800_53_families": ["AC", "AU", "SI"],
+      "status": "implemented-without-external-write",
+      "evidence": ["watchdawg.js", "test.mjs"]
+    },
+    {
+      "capability": "Source inventory, hashes, and machine-readable SBOM",
+      "candidate_nist_800_53_families": ["CM", "SA", "SI"],
+      "status": "implemented",
+      "evidence": ["scripts/generate_government_evidence.py", ".github/workflows/government-evidence.yml"]
+    },
+    {
+      "capability": "Durable centralized audit retention and tamper protection",
+      "candidate_nist_800_53_families": ["AU", "CP"],
+      "status": "not-implemented",
+      "evidence": ["docs/GOVERNMENT-READINESS.md"]
+    },
+    {
+      "capability": "Agency identity federation and role separation",
+      "candidate_nist_800_53_families": ["AC", "IA"],
+      "status": "not-implemented",
+      "evidence": ["docs/GOVERNMENT-READINESS.md"]
+    },
+    {
+      "capability": "Independent authorization or certification",
+      "candidate_nist_800_53_families": ["CA"],
+      "status": "not-implemented",
+      "evidence": ["docs/GOVERNMENT-READINESS.md"]
+    }
+  ]
+}

@@ -13,6 +13,14 @@ The product principle is simple: **work happens in the field, Watch-Dawg watches
 - MongoDB persistence for AI audit messages in the full-stack runtime.
 - Built-in verified, ledger, and anomaly scenarios for reproducible testing.
 - KEY-9 agentic credential broker with explicit policy gates, sandboxing, human approval, and redacted audit proof.
+- Authorized, explicit-port service exposure checks without banners, exploits,
+  or credential attempts.
+- Redacted local secret-exposure checks that never return matched credential
+  values.
+- SHA-256-bound financial correction proposals that require exact human
+  approval and produce no external write.
+- A government evaluator evidence bundle with source hashes, SPDX SBOM, test
+  commands, and a candid control-gap crosswalk.
 
 ## Contractor direction
 
@@ -44,6 +52,11 @@ The contest implementation includes:
 - Cloud Run deployment helpers and smoke tests.
 
 The design goal is **use the credential without revealing the credential**.
+
+Government-readiness evidence and the limits on all compliance claims are in
+[`docs/GOVERNMENT-READINESS.md`](docs/GOVERNMENT-READINESS.md).
+The draft customer-facing pilot scope is in
+[`docs/CAPABILITY-STATEMENT.md`](docs/CAPABILITY-STATEMENT.md).
 
 ## Reproducible testing
 

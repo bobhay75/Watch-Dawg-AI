@@ -1,0 +1,38 @@
+{
+  "secret_root": ".",
+  "targets": [
+    {
+      "id": "owned-public-edge",
+      "kind": "service_exposure",
+      "hostname": "example.gov",
+      "ports": [22, 443],
+      "authorization": {
+        "mode": "owner",
+        "id": "CHANGE-REPLACE-ME",
+        "approved_methods": ["tcp-connect"],
+        "scope": {
+          "hostname": "example.gov",
+          "ports": [22, 443]
+        },
+        "expires_at": "2099-01-01T00:00:00Z"
+      },
+      "checks": {
+        "expected_open_ports": [443]
+      }
+    },
+    {
+      "id": "owned-reviewed-source",
+      "kind": "secret_exposure",
+      "paths": ["README.md"],
+      "authorization": {
+        "mode": "owner",
+        "id": "CHANGE-REPLACE-ME",
+        "approved_methods": ["read-local-files"],
+        "scope": {
+          "paths": ["README.md"]
+        },
+        "expires_at": "2099-01-01T00:00:00Z"
+      }
+    }
+  ]
+}

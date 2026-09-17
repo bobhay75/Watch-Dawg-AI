@@ -49,6 +49,33 @@ The pack has explicit limits of at most 10 child sitemaps and 100 page URLs. It 
 
 Client IPs are hashed before entering observations. A probe-pattern match is labeled `INFERENCE`; it is not represented as proof of an attacker or compromise.
 
+### Authorized service-exposure pack
+
+- checks only an explicit list of at most 16 TCP ports on one public hostname;
+- requires `owner` or `contract` authority with a record ID, exact host and port
+  scope, approved `tcp-connect` method, and unexpired authorization;
+- compares reachable ports with an approved open-service baseline;
+- collects no banners and sends no exploit or authentication payloads.
+
+This is bounded service discovery, not a general port scanner. Port ranges,
+private-address targets, credential attempts, vulnerability exploitation,
+evasion, persistence, and lateral movement are not supported.
+
+### Authorized secret-exposure pack
+
+- inspects only explicitly listed local files under a configured root;
+- requires `owner` or `contract` authority, an authorization record ID, exact
+  path scope, the approved `read-local-files` method, and an expiration time;
+- limits each run to 50 files and each file to 1 MB;
+- recognizes selected private-key, cloud-key, GitHub-token, and hard-coded
+  secret patterns;
+- emits only the rule, file, line, and a truncated SHA-256 fingerprint—not the
+  credential itself.
+
+This replaces password guessing with a defensible exposure audit. It does not
+attempt logins, crack hashes, test passwords against remote services, or collect
+the secret value in findings.
+
 ## Evidence and noise control
 
 Every finding has a stable fingerprint, severity, evidence, and one of two truth labels:
@@ -140,6 +167,26 @@ The built-in limiter and file-backed state are intentionally single-instance.
 Before horizontal scaling or Internet exposure, place the service behind a
 managed HTTPS proxy with a shared rate limit and request timeout, and move state
 to durable storage with cross-instance locking.
+
+## Human-approved financial correction plans
+
+The deterministic JavaScript audit core can prepare corrections for valid
+deposit-allocation mismatches. A plan is bound to the exact source ledger and
+its proposed changes with SHA-256 digests. Application requires an exact plan
+digest, an `APPROVE` decision, and a named human approver. The result is a
+corrected in-memory copy plus a receipt; Watch-Dawg never writes to a bank,
+accounting system, or external financial record.
+
+Unknown transaction types and invalid financial fields remain in the manual
+review queue.
+
+## Government evaluation readiness
+
+The current customer-managed pilot boundary, evidence bundle, candidate NIST
+control crosswalk, and remaining authorization gates are documented in
+[`docs/GOVERNMENT-READINESS.md`](docs/GOVERNMENT-READINESS.md). These artifacts
+support evaluation; they do not claim FedRAMP, FISMA, FIPS, CMMC, Section 508,
+or agency authorization.
 
 ### Private staging on Cloud Run
 
