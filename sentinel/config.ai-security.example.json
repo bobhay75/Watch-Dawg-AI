@@ -1,0 +1,19 @@
+{
+  "ai_manifest_root": "sentinel/examples",
+  "targets": [
+    {
+      "id": "example-ai-system",
+      "kind": "ai_system",
+      "manifest_path": "ai-system.manifest.example.json",
+      "authorization": {
+        "mode": "owner",
+        "id": "AUTH-AI-EXAMPLE-001",
+        "scope": {
+          "manifest_path": "ai-system.manifest.example.json"
+        },
+        "approved_methods": ["read-ai-manifest"],
+        "expires_at": "2030-01-01T00:00:00Z"
+      }
+    }
+  ]
+}

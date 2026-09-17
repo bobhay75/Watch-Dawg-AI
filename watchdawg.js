@@ -10,6 +10,25 @@ const finite = (value) => {
 
 const isObject = (value) => value && typeof value === 'object' && !Array.isArray(value);
 
+const canonicalize = (value) => {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (isObject(value)) {
+    return Object.fromEntries(
+      Object.keys(value).sort().map((key) => [key, canonicalize(value[key])])
+    );
+  }
+  return value;
+};
+
+const digest = async (value) => {
+  if (!globalThis.crypto?.subtle) throw new Error('Web Crypto SHA-256 support is required');
+  const bytes = new TextEncoder().encode(JSON.stringify(canonicalize(value)));
+  const hash = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+};
+
+const copyJson = (value) => JSON.parse(JSON.stringify(value));
+
 const asMoney = (value) => `$${round(value).toFixed(2)}`;
 
 export const sampleScenarios = {
@@ -217,6 +236,103 @@ export function runWatchDawg(payload) {
     audit,
     report: explainAudit(audit)
   };
+}
+
+export async function createCorrectionPlan(payload, options = {}) {
+  if (!isObject(payload) || !Array.isArray(payload.transactions)) {
+    throw new TypeError('Correction planning requires a ledger object with transactions');
+  }
+  const source = copyJson(payload);
+  const proposals = [];
+  const unhandledReviews = [];
+
+  source.transactions.forEach((tx, index) => {
+    const type = String(tx?.type || '').toLowerCase();
+    if (type !== 'deposit') {
+      if (!['purchase', 'vault-withdrawal'].includes(type)) {
+        unhandledReviews.push({ index, id: tx?.id || null, reason: 'Unknown transaction type' });
+      }
+      return;
+    }
+    const audit = auditAllocation(tx);
+    const safeCore = finite(tx.gross) && Number(tx.gross) >= 0
+      && finite(tx.rate) && Number(tx.rate) >= 0 && Number(tx.rate) <= 1
+      && finite(tx.vault) && Number(tx.vault) >= 0;
+    if (!safeCore || audit.expectedVault == null || audit.expectedSpend == null) {
+      unhandledReviews.push({ index, id: tx?.id || null, reason: 'Invalid deposit fields require manual review' });
+      return;
+    }
+
+    const changes = {};
+    if (Math.abs(Number(tx.vault) - audit.expectedVault) > TOLERANCE) {
+      changes.vault = audit.expectedVault;
+    }
+    if (tx.spend != null && finite(tx.spend)
+      && Math.abs(Number(tx.spend) - audit.expectedSpend) > TOLERANCE) {
+      changes.spend = audit.expectedSpend;
+    }
+    if (!Object.keys(changes).length) return;
+
+    proposals.push({
+      proposalId: `TX-${String(index + 1).padStart(4, '0')}`,
+      transactionIndex: index,
+      transactionId: tx.id || null,
+      reason: 'Deterministic deposit allocation mismatch',
+      before: Object.fromEntries(Object.keys(changes).map((key) => [key, round(tx[key])])),
+      changes,
+    });
+  });
+
+  const plan = {
+    version: 1,
+    createdAt: options.createdAt || new Date().toISOString(),
+    sourceDigest: await digest(source),
+    proposals,
+    unhandledReviews,
+    requiresHumanApproval: true,
+    externalWritePerformed: false,
+  };
+  return { ...plan, planDigest: await digest(plan) };
+}
+
+export async function applyApprovedCorrectionPlan(payload, plan, approval) {
+  if (!isObject(plan) || plan.version !== 1 || !Array.isArray(plan.proposals)) {
+    throw new TypeError('Unsupported correction plan');
+  }
+  if (!isObject(approval)
+    || approval.decision !== 'APPROVE'
+    || !String(approval.approver || '').trim()
+    || approval.planDigest !== plan.planDigest) {
+    throw new Error('Exact human approval for this correction plan is required');
+  }
+  if (await digest(payload) !== plan.sourceDigest) {
+    throw new Error('Ledger changed after the correction plan was created');
+  }
+  const unsignedPlan = { ...plan };
+  delete unsignedPlan.planDigest;
+  if (await digest(unsignedPlan) !== plan.planDigest) {
+    throw new Error('Correction plan integrity check failed');
+  }
+
+  const corrected = copyJson(payload);
+  for (const proposal of plan.proposals) {
+    const tx = corrected.transactions[proposal.transactionIndex];
+    if (!tx || (proposal.transactionId != null && tx.id !== proposal.transactionId)) {
+      throw new Error('Correction proposal no longer matches its transaction');
+    }
+    for (const [field, value] of Object.entries(proposal.changes)) tx[field] = value;
+  }
+  const receipt = {
+    planDigest: plan.planDigest,
+    sourceDigest: plan.sourceDigest,
+    resultDigest: await digest(corrected),
+    decision: 'APPROVE',
+    approver: String(approval.approver).trim(),
+    approvedAt: approval.approvedAt || new Date().toISOString(),
+    appliedProposalIds: plan.proposals.map((item) => item.proposalId),
+    externalWritePerformed: false,
+  };
+  return { corrected, receipt };
 }
 
 export function explainAudit(result) {

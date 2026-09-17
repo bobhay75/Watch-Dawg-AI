@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import{auditAllocation,reconcile,dawScore,runWatchDawg,explainAudit,sampleScenarios}from'./watchdawg.js';
+import{auditAllocation,reconcile,dawScore,runWatchDawg,explainAudit,sampleScenarios,createCorrectionPlan,applyApprovedCorrectionPlan}from'./watchdawg.js';
 
 assert.equal(auditAllocation({gross:500,rate:.1,vault:50,spend:450}).status,'VERIFIED');
 assert.equal(auditAllocation({gross:500,rate:.1,vault:20,spend:480}).status,'REVIEW');
@@ -68,4 +68,30 @@ assert.match(publicDemo,/from\s+["']\.\/watchdawg\.js["']/,'public demo must use
 assert.match(publicDemo,/I own this target or have explicit authorization/,'live intake must keep its authorization gate');
 assert.match(publicDemo,/No intrusive scan was launched from your browser/,'live intake must state its defensive boundary');
 
+const correctionSource={opening:{spendable:300,vaulted:40},transactions:[
+  {id:'GV-3001',type:'Deposit',gross:500,rate:.1,vault:20,spend:480},
+  {id:'GV-3002',type:'mystery',amount:25}
+]};
+const correctionPlan=await createCorrectionPlan(correctionSource,{createdAt:'2026-09-17T00:00:00.000Z'});
+assert.equal(correctionPlan.requiresHumanApproval,true);
+assert.equal(correctionPlan.externalWritePerformed,false);
+assert.deepEqual(correctionPlan.proposals[0].changes,{vault:50,spend:450});
+assert.equal(correctionPlan.unhandledReviews.length,1);
+await assert.rejects(
+  applyApprovedCorrectionPlan(correctionSource,correctionPlan,{decision:'APPROVE',approver:'Robert',planDigest:'wrong'}),
+  /Exact human approval/
+);
+const approved=await applyApprovedCorrectionPlan(correctionSource,correctionPlan,{
+  decision:'APPROVE',approver:'Robert',planDigest:correctionPlan.planDigest,approvedAt:'2026-09-17T00:01:00.000Z'
+});
+assert.equal(approved.corrected.transactions[0].vault,50);
+assert.equal(approved.corrected.transactions[0].spend,450);
+assert.equal(correctionSource.transactions[0].vault,20);
+assert.equal(approved.receipt.externalWritePerformed,false);
+await assert.rejects(
+  applyApprovedCorrectionPlan({...correctionSource,opening:{spendable:301,vaulted:40}},correctionPlan,{
+    decision:'APPROVE',approver:'Robert',planDigest:correctionPlan.planDigest
+  }),
+  /Ledger changed/
+);
 console.log('Watch-Dawg tests passed');

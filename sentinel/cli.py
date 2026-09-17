@@ -5,10 +5,13 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .ai_system_watch import AiSystemRiskWatchPack
 from .core import SentinelEngine, StateStore
 from .domain_watch import DnsTlsWatchPack
 from .http_watch import HttpWatchPack
 from .log_watch import AccessLogWatchPack
+from .secret_watch import SecretExposureWatchPack
+from .service_watch import ServiceExposureWatchPack
 from .sitemap_watch import SitemapWatchPack
 
 
@@ -31,6 +34,8 @@ def main() -> int:
     args = build_parser().parse_args()
     config = load_config(args.config)
     log_root = Path(config.get("log_root", "."))
+    secret_root = Path(config.get("secret_root", "."))
+    ai_manifest_root = Path(config.get("ai_manifest_root", "."))
     engine = SentinelEngine(
         StateStore(args.state),
         [
@@ -38,6 +43,9 @@ def main() -> int:
             DnsTlsWatchPack(),
             SitemapWatchPack(),
             AccessLogWatchPack(log_root),
+            ServiceExposureWatchPack(),
+            SecretExposureWatchPack(secret_root),
+            AiSystemRiskWatchPack(ai_manifest_root),
         ],
     )
     result = engine.run(config["targets"])
