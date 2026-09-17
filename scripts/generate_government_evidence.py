@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from verify_supply_chain import inspect_root
+
 
 ROOT = Path(__file__).resolve().parents[1]
 INCLUDED_SUFFIXES = {".js", ".json", ".md", ".mjs", ".py", ".sh", ".ts", ".tsx", ".yml", ".yaml"}
@@ -133,6 +135,11 @@ def main() -> int:
     )
     matrix = ROOT / "docs/government-control-matrix.json"
     (output / "government-control-matrix.json").write_bytes(matrix.read_bytes())
+    supply_chain = inspect_root(ROOT)
+    (output / "supply-chain-report.json").write_text(
+        json.dumps(supply_chain, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     manifest = {
         "schema_version": 1,
         "generated_at": generated_at,
@@ -143,12 +150,14 @@ def main() -> int:
             "source_hashes": "source-sha256.json",
             "sbom": "sbom.spdx.json",
             "control_crosswalk": "government-control-matrix.json",
+            "supply_chain_report": "supply-chain-report.json",
         },
         "verification_commands": [
             "npm test",
             "python -m compileall -q sentinel scripts",
             "python -m unittest discover -s sentinel/tests -v",
             "bash -n sentinel/scripts/*.sh",
+            "python scripts/verify_supply_chain.py",
             "docker build --tag watch-dawg-sentinel-api:test -f sentinel/Dockerfile .",
         ],
     }

@@ -21,6 +21,13 @@ The product principle is simple: **work happens in the field, Watch-Dawg watches
   approval and produce no external write.
 - A government evaluator evidence bundle with source hashes, SPDX SBOM, test
   commands, and a candid control-gap crosswalk.
+- Authorized, manifest-only AI-system risk review for immutable model revisions,
+  remote-code trust, high-impact tool approval, prompt-injection defenses,
+  output validation, brokered secrets, recovery objectives, and cryptographic
+  migration ownership. It never invokes the reviewed model.
+- A CI supply-chain gate that requires full commit-SHA pins for GitHub Actions,
+  exact Python dependency versions, and Node lockfiles, while reporting
+  container bases that still need digest pins.
 
 ## Contractor direction
 
@@ -57,6 +64,11 @@ Government-readiness evidence and the limits on all compliance claims are in
 [`docs/GOVERNMENT-READINESS.md`](docs/GOVERNMENT-READINESS.md).
 The draft customer-facing pilot scope is in
 [`docs/CAPABILITY-STATEMENT.md`](docs/CAPABILITY-STATEMENT.md).
+
+The AI control manifest is a review aid, not an assurance that a model is safe.
+It records evidence for human review and deliberately excludes autonomous
+exploitation, credential guessing, unrestricted tool use, and automatic
+financial correction.
 
 ## Reproducible testing
 

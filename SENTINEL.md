@@ -76,6 +76,27 @@ This replaces password guessing with a defensible exposure audit. It does not
 attempt logins, crack hashes, test passwords against remote services, or collect
 the secret value in findings.
 
+### Authorized AI-system risk pack
+
+- reads one explicitly authorized JSON control manifest under a configured
+  local root and never calls the AI model or its tools;
+- requires an authorization record ID, exact manifest path, approved
+  `read-ai-manifest` method, and unexpired `owner` or `contract` authority;
+- records only a content hash and minimized control evidence;
+- flags mutable model revisions, supplier-provided remote-code execution,
+  ungated high-impact tools, unknown-tool or network-default-allow policies,
+  missing prompt-injection and output-validation controls, embedded secrets,
+  missing kill switch or model-change approval, vendor/provenance gaps,
+  untested recovery objectives, and incomplete cryptographic migration
+  ownership;
+- redacts credential-like values and reports only their manifest path and a
+  truncated fingerprint.
+
+Use [`sentinel/config.ai-security.example.json`](sentinel/config.ai-security.example.json)
+as the profile example. This is an evidence-based configuration audit, not a
+model penetration test, behavior guarantee, certification, or substitute for
+red-team and production monitoring.
+
 ## Evidence and noise control
 
 Every finding has a stable fingerprint, severity, evidence, and one of two truth labels:
@@ -118,6 +139,25 @@ Run tests:
 ```bash
 python -m unittest discover -s sentinel/tests -v
 ```
+
+Run the example AI control review:
+
+```bash
+python -m sentinel.cli \
+  --config sentinel/config.ai-security.example.json \
+  --state .sentinel/ai-security-state.json
+```
+
+Verify repository supply-chain boundaries:
+
+```bash
+python scripts/verify_supply_chain.py
+```
+
+The verifier fails on non-SHA-pinned third-party GitHub Actions, unpinned Python
+requirements, missing Node lockfiles, and floating `latest` container bases. A
+versioned container base without a digest is reported as a warning so the
+remaining provenance gap is visible rather than hidden.
 
 ## Restricted API
 

@@ -6,7 +6,7 @@
       "capability": "Explicit authorization and method scope",
       "candidate_nist_800_53_families": ["AC", "CA"],
       "status": "implemented-for-new-active-packs",
-      "evidence": ["sentinel/service_watch.py", "sentinel/secret_watch.py", "sentinel/tests/test_authorized_controls.py"]
+      "evidence": ["sentinel/service_watch.py", "sentinel/secret_watch.py", "sentinel/ai_system_watch.py", "sentinel/tests/test_authorized_controls.py"]
     },
     {
       "capability": "Least-privilege restricted profile API",
@@ -31,6 +31,41 @@
       "candidate_nist_800_53_families": ["CM", "SA", "SI"],
       "status": "implemented",
       "evidence": ["scripts/generate_government_evidence.py", ".github/workflows/government-evidence.yml"]
+    },
+    {
+      "capability": "Software supply-chain reproducibility gate",
+      "candidate_nist_800_53_families": ["CM", "SA", "SI"],
+      "candidate_nist_csf_functions": ["GOVERN", "IDENTIFY", "PROTECT"],
+      "status": "partial-container-digest-gap",
+      "evidence": ["scripts/verify_supply_chain.py", ".github/workflows/government-evidence.yml", "sentinel/tests/test_authorized_controls.py"]
+    },
+    {
+      "capability": "AI system inventory and deterministic control-manifest review",
+      "candidate_nist_800_53_families": ["AC", "CA", "CM", "RA", "SA", "SI"],
+      "candidate_nist_ai_rmf_functions": ["GOVERN", "MAP", "MEASURE", "MANAGE"],
+      "status": "implemented-for-declared-manifest-evidence",
+      "evidence": ["sentinel/ai_system_watch.py", "sentinel/examples/ai-system.manifest.example.json", "sentinel/tests/test_authorized_controls.py"]
+    },
+    {
+      "capability": "AI high-impact action approval and zero-trust defaults",
+      "candidate_nist_800_53_families": ["AC", "IA", "SC", "SI"],
+      "candidate_nist_ai_rmf_functions": ["GOVERN", "MANAGE"],
+      "status": "manifest-policy-check-only",
+      "evidence": ["sentinel/ai_system_watch.py", "sentinel/tests/test_authorized_controls.py", "key9/SECURITY.md"]
+    },
+    {
+      "capability": "AI resilience objectives, restore-test freshness, and kill-switch evidence",
+      "candidate_nist_800_53_families": ["CP", "IR", "SI"],
+      "candidate_nist_ai_rmf_functions": ["GOVERN", "MEASURE", "MANAGE"],
+      "status": "manifest-policy-check-only",
+      "evidence": ["sentinel/ai_system_watch.py", "sentinel/tests/test_authorized_controls.py"]
+    },
+    {
+      "capability": "Cryptographic inventory and migration-trigger ownership",
+      "candidate_nist_800_53_families": ["CM", "SC"],
+      "candidate_nist_csf_functions": ["GOVERN", "IDENTIFY", "PROTECT"],
+      "status": "inventory-check-only-not-fips-or-pqc-validation",
+      "evidence": ["sentinel/ai_system_watch.py", "docs/GOVERNMENT-READINESS.md"]
     },
     {
       "capability": "Durable centralized audit retention and tamper protection",

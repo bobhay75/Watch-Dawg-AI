@@ -20,6 +20,13 @@ correction evidence for public-sector pilots
   clearly labeled probe-pattern inference.
 - Authorized source-file credential-exposure review with redacted evidence;
   suspected values are fingerprinted and never included in output.
+- Authorized AI-system control-manifest review covering immutable model
+  identity, supplier remote code, high-impact tool approval, zero-trust egress
+  and tool defaults, prompt/output safeguards, brokered secrets, recovery
+  objectives, and cryptographic migration ownership.
+- Repository supply-chain evidence covering commit-pinned workflow actions,
+  exact Python dependencies, Node lockfiles, container-base warnings, source
+  hashes, and a machine-readable SPDX SBOM.
 - Deterministic transaction-allocation review and SHA-256-bound correction
   proposals that require explicit review and create no external financial
   write.
@@ -38,6 +45,8 @@ correction evidence for public-sector pilots
 - The evidence build produces source hashes, a machine-readable SPDX SBOM,
   verification commands, revision identity, and a candid control-gap matrix.
 - Human decision authority remains outside the automated observation engine.
+- AI assessment is deterministic and manifest-only: no model invocation,
+  autonomous exploitation, credential guessing, or automatic external action.
 
 ## Fixed-scope pilot
 
@@ -59,6 +68,8 @@ Watch-Dawg supplies:
 4. scheduled comparison runs using the customer-approved cadence;
 5. new/resolved finding evidence and a closeout verification report;
 6. source/SBOM/control-crosswalk evidence bundle for technical review.
+7. AI-control and software-supply-chain gap report when those scopes are
+   included in the authorization record.
 
 Acceptance criteria:
 
@@ -90,6 +101,11 @@ separate work packages.
       law-enforcement data is excluded or requires additional controls.
 - [ ] Complete a production threat model, accessibility review, incident plan,
       retention schedule, continuity plan, and independent security test.
+- [ ] Validate declared AI safeguards through adversarial testing, runtime
+      telemetry, supplier review, and incident exercises; a manifest alone is
+      not operating-effectiveness evidence.
+- [ ] Replace version-tagged container bases with reviewed digest pins and
+      establish a documented dependency-update and vulnerability-response SLA.
 - [ ] Tailor the control matrix and SSP/OSCAL artifacts to the actual agency
       system boundary.
 

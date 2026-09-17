@@ -108,6 +108,46 @@ ACTION_CATALOG: dict[str, dict[str, str]] = {
         "success_metric": "The credential is invalidated, absent from reviewed files, and supplied only through the approved secret boundary.",
         "verification": "Re-run the redacted exposure check and retain rotation and removal records without storing the credential.",
     },
+    "AI_MODEL_UNPINNED": {
+        "deficit": "An AI model dependency can change without an immutable reviewed revision.",
+        "why_it_matters": "Mutable model references weaken reproducibility and can admit unreviewed supplier changes.",
+        "preventive_action": "Pin the approved model artifact to a full commit or SHA-256 digest and review every revision change.",
+        "prosperity_lever": "Reduce avoidable model drift, rollback uncertainty, and supplier-change risk.",
+        "success_metric": "Every production model resolves to an approved immutable revision.",
+        "verification": "Re-run the manifest audit and match the recorded revision to the reviewed model artifact.",
+    },
+    "AI_REMOTE_CODE_ENABLED": {
+        "deficit": "The AI runtime may execute code supplied with a third-party model.",
+        "why_it_matters": "Supplier-provided code expands the execution and software-supply-chain boundary.",
+        "preventive_action": "Disable remote-code trust or isolate and independently review the exact pinned code before use.",
+        "prosperity_lever": "Preserve model flexibility without silently inheriting a supplier's execution privileges.",
+        "success_metric": "Remote code is disabled or covered by a documented isolated exception and review.",
+        "verification": "Inspect the runtime configuration and re-run the manifest audit against the released revision.",
+    },
+    "AI_HIGH_IMPACT_TOOL_UNGATED": {
+        "deficit": "An AI tool can perform a high-impact operation without recorded human approval.",
+        "why_it_matters": "Autonomous write, deploy, identity, financial, or external-message actions can amplify mistakes or prompt injection.",
+        "preventive_action": "Require a named human approval step and deny unknown tools before enabling the operation.",
+        "prosperity_lever": "Use AI assistance while retaining accountable control of consequential actions.",
+        "success_metric": "Every high-impact tool invocation is blocked until an authorized human approves it.",
+        "verification": "Exercise the deny path and an approved path in a non-production environment and retain receipts.",
+    },
+    "AI_SECRET_EMBEDDED": {
+        "deficit": "Credential-like material may be embedded in an AI system manifest.",
+        "why_it_matters": "Prompts, configuration, logs, and model tooling can expose reusable secrets.",
+        "preventive_action": "Rotate any confirmed value and replace it with an approved secret-broker reference.",
+        "prosperity_lever": "Limit breach blast radius while preserving controlled agent access.",
+        "success_metric": "Manifests contain only approved secret references and no reusable credential values.",
+        "verification": "Re-run the redacted manifest audit after rotation and broker integration.",
+    },
+    "AI_": {
+        "deficit": "A declared AI-system safeguard or accountability record is incomplete.",
+        "why_it_matters": "AI speed and autonomy can amplify supplier, data, access, and recovery failures.",
+        "preventive_action": "Close the named manifest control gap, review the evidence, and keep high-impact decisions human-gated.",
+        "prosperity_lever": "Adopt AI faster with a measurable, reviewable operating boundary.",
+        "success_metric": "The AI manifest audit returns no unresolved findings for the approved release.",
+        "verification": "Re-run the exact authorized AI manifest profile and retain the content hash and results.",
+    },
 }
 
 
