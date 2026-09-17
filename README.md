@@ -136,13 +136,57 @@ export REACT_APP_BACKEND_URL='http://localhost:8001'
 export WATCH_DAWG_AI_API_TOKEN='THE_SAME_SERVER_SIDE_SECRET'
 ```
 
-The proxy requires the caller to supply a valid bearer token and never adds
-credentials to anonymous requests. Paid browser analysis is locked until an
-authenticated user/session integration is provided. The deterministic browser
-demo still works. Keep this shared service credential in trusted API clients;
-never embed it in browser JavaScript or browser storage. Both servers reject
-API bodies larger than 64,000 bytes before forwarding or JSON parsing, including
-chunked bodies. Never commit `.env` files, keys, or service-account secrets.
+The frontend requires an individual operator session before it sends a paid audit
+to the backend. The shared bearer credential is now only a service-to-service
+secret: browser bearer headers are not accepted as operator authentication.
+The deterministic demo remains usable without signing in.
+
+Create an operator account outside the repository (the command prompts privately
+for a unique passphrase and writes a 0600 file; it will not overwrite a file):
+
+```bash
+mkdir -p ~/.config/watch-dawg
+python frontend/create_operator.py --username robert --output ~/.config/watch-dawg/operators.json
+export WATCH_DAWG_USERS_FILE=~/.config/watch-dawg/operators.json
+export WATCH_DAWG_PUBLIC_ORIGIN='http://localhost:3000'
+export HOST='127.0.0.1'
+```
+
+For a private HTTPS deployment, set `WATCH_DAWG_PUBLIC_ORIGIN` to the exact HTTPS
+origin without a trailing slash. Serve through a managed TLS reverse proxy; HTTP
+is allowed only with a loopback origin and loopback bind address for development.
+Backend traffic must use HTTPS or loopback HTTP. Open `/login.html`, sign in, then
+return to the audit. The Operator account link also provides sign-out.
+
+Accounts use unique salts and scrypt (N=131072, r=8, p=1). Session cookies are
+HttpOnly, SameSite=Strict, Secure over HTTPS, and expire after 15 minutes. A new
+login revokes the previous session for that account; logout revokes it immediately.
+Login and paid audit writes require the configured Origin. Each operator is
+limited to five paid requests per minute, within the backend's shared ceiling.
+Password verification concurrency is bounded to limit memory use.
+
+This is a private **single-process operator pilot**, with up to 20 configured
+accounts. It provides no public registration, password-reset email, MFA or SSO.
+Sessions and throttles are process-local: restart signs everyone out. To revoke
+an operator or rotate a password, replace the protected configuration and restart
+all frontend instances. Do not use multiple instances without shared session and
+rate-limit storage. Before a government/public deployment, integrate the required
+identity provider and MFA; this pilot does not establish certification.
+
+Keep operator files, passwords, and service credentials out of git, browser
+storage, logs, and the public web root. Never give a browser the backend token.
+Both servers reject API bodies above 64,000 bytes before forwarding or parsing;
+sign-in bodies are limited to 4,096 bytes, including chunked bodies.
+
+Security references: [OWASP password storage](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
+and [session management](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html).
+
+Run the offline security checks (no account, database or paid model required):
+
+```bash
+node --test frontend/tests/*.test.mjs
+python -m unittest backend.tests.test_request_boundary -v
+```
 
 Start the backend:
 

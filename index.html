@@ -428,6 +428,7 @@
     </style>
   </head>
   <body>
+    <p style="text-align:right;padding:0.5rem 1rem"><a href="/login.html">Operator account</a></p>
     <div class="shell">
       <header class="topbar" data-testid="app-header">
         <div class="brand" data-testid="brand-lockup">
@@ -669,7 +670,11 @@
 
           if (response.status === 401 || response.status === 403) {
             aiStatus.textContent = 'AI analysis locked';
-            aiInsights.textContent = 'Paid AI analysis requires authenticated access. Your deterministic audit is complete and available below.';
+            aiInsights.textContent = 'Sign in for paid AI analysis. Your deterministic audit is complete.';
+            const signIn = document.createElement('a');
+            signIn.href = '/login.html';
+            signIn.textContent = ' Operator sign-in / sign-out';
+            aiInsights.append(signIn);
             return;
           }
           if (!response.ok || !response.body) throw new Error('AI service unavailable');

@@ -1,5 +1,7 @@
 import http from 'node:http';
-import { timingSafeEqual } from 'node:crypto';
+import https from 'node:https';
+import { fileURLToPath } from 'node:url';
+import { OperatorAuth, loadOperators, readBoundedBody } from './operator-auth.mjs';
 import { createReadStream } from 'node:fs';
 import { readFileSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
@@ -25,7 +27,7 @@ loadEnv('/app/frontend/.env');
 
 const port = Number(process.env.PORT);
 const host = process.env.HOST;
-const root = '/app';
+const root = fileURLToPath(new URL('../', import.meta.url));
 const backend = process.env.REACT_APP_BACKEND_URL;
 const aiApiToken = process.env.WATCH_DAWG_AI_API_TOKEN;
 
@@ -44,50 +46,70 @@ const types = new Map([
 ]);
 
 const maxRequestBytes = 64_000;
+const backendURL = new URL(backend);
+if (backendURL.protocol !== 'https:' && !(backendURL.protocol === 'http:'
+    && ['127.0.0.1', 'localhost', '[::1]'].includes(backendURL.hostname))) {
+  throw new Error('Backend must use HTTPS or loopback HTTP');
+}
+const operators = new OperatorAuth({ users: loadOperators(process.env.WATCH_DAWG_USERS_FILE),
+  origin: process.env.WATCH_DAWG_PUBLIC_ORIGIN, bindHost: host });
+
+function authReply(res, result) {
+  const headers = { 'content-type': 'application/json', 'cache-control': 'no-store' };
+  if (result.cookie) headers['set-cookie'] = result.cookie;
+  if (result.status === 429) headers['retry-after'] = '60';
+  res.writeHead(result.status, headers);
+  res.end(JSON.stringify({ detail: result.detail }));
+}
+
+async function authRoute(req, res) {
+  if (req.url === '/auth/session' && req.method === 'GET') {
+    const session = operators.session(req);
+    return authReply(res, { status: session ? 200 : 401,
+      detail: session ? 'Signed in' : 'Sign-in required' });
+  }
+  if (req.url === '/auth/logout' && req.method === 'POST') {
+    return authReply(res, operators.logout(req));
+  }
+  if (req.url !== '/auth/login' || req.method !== 'POST') return sendText(res, 404, 'Not found');
+  if (!operators.sameOrigin(req)) return authReply(res, { status: 403, detail: 'Same-origin request required' });
+  try {
+    const body = await readBoundedBody(req, 4096);
+    const credentials = JSON.parse(body.toString('utf8'));
+    return authReply(res, await operators.login(req, credentials));
+  } catch (error) {
+    return authReply(res, { status: error.status || 400, detail: 'Sign-in request rejected' });
+  }
+}
 
 async function proxyApi(req, res) {
-  // Never turn an anonymous browser request into a privileged service request.
-  const supplied = Buffer.from(req.headers.authorization || '');
-  const expected = Buffer.from(`Bearer ${aiApiToken}`);
   const publicHealth = req.method === 'GET' && req.url === '/api/health';
-  if (!publicHealth && (supplied.length !== expected.length || !timingSafeEqual(supplied, expected))) {
-    res.writeHead(401, { 'content-type': 'application/json', 'www-authenticate': 'Bearer' });
-    res.end(JSON.stringify({ detail: 'Authenticated API access is required' }));
-    return;
+  if (!publicHealth) {
+    if (req.url !== '/api/ai/audit' || req.method !== 'POST') return sendText(res, 404, 'Not found');
+    const authorization = operators.authorize(req);
+    if (authorization.status !== 200) return authReply(res, authorization);
   }
-  if (Number(req.headers['content-length']) > maxRequestBytes) {
-    sendText(res, 413, 'Request body is too large');
-    return;
-  }
-  // Buffer only a bounded body; no upstream request exists until it is accepted.
-  const chunks = [];
-  let bytes = 0;
+  let body;
   try {
-    for await (const chunk of req.iterator({ destroyOnReturn: false })) {
-      bytes += chunk.length;
-      if (bytes > maxRequestBytes) {
-        sendText(res, 413, 'Request body is too large');
-        req.resume();
-        return;
-      }
-      chunks.push(chunk);
-    }
-  } catch {
-    if (!res.destroyed) sendText(res, 400, 'Incomplete request body');
+    body = await readBoundedBody(req, maxRequestBytes);
+  } catch (error) {
+    if (!res.destroyed) sendText(res, error.status || 400, 'Request body rejected');
     return;
   }
   const target = new URL(req.url, backend);
-  const headers = {
-    ...req.headers,
-    host: target.host,
-  };
-  delete headers['transfer-encoding'];
-  headers['content-length'] = String(bytes);
-  const proxy = http.request(
+  // Forward only required headers, never cookies or caller-controlled identity.
+  const headers = { host: target.host, 'content-type': 'application/json',
+    'content-length': String(body.length) };
+  if (!publicHealth) headers.authorization = `Bearer ${aiApiToken}`;
+  const transport = target.protocol === 'https:' ? https : http;
+  const proxy = transport.request(
     target,
     { method: req.method, headers },
     (apiRes) => {
-      res.writeHead(apiRes.statusCode || 502, apiRes.headers);
+      res.writeHead(apiRes.statusCode || 502, {
+        'content-type': apiRes.headers['content-type'] || 'application/json',
+        'cache-control': 'no-store',
+      });
       apiRes.pipe(res);
     },
   );
@@ -95,13 +117,13 @@ async function proxyApi(req, res) {
     res.writeHead(502, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ detail: 'API service unavailable' }));
   });
-  proxy.end(Buffer.concat(chunks, bytes));
+  proxy.end(body);
 }
 
 function safeFilePath(urlPath) {
   const pathname = decodeURIComponent(new URL(urlPath, 'http://local').pathname);
   const mapped = pathname === '/' ? '/index.html' : pathname;
-  if (!['/index.html', '/watchdawg.js'].includes(mapped)) return null;
+  if (!['/index.html', '/watchdawg.js', '/login.html', '/login.js'].includes(mapped)) return null;
   return normalize(join(root, mapped));
 }
 
@@ -115,9 +137,19 @@ function isMissingFileError(error) {
 }
 
 const server = http.createServer(async (req, res) => {
+  res.setHeader('x-content-type-options', 'nosniff');
+  res.setHeader('referrer-policy', 'no-referrer');
+  res.setHeader('x-frame-options', 'DENY');
+  if (req.url?.startsWith('/auth/')) return authRoute(req, res);
   if (req.url?.startsWith('/api/')) return proxyApi(req, res);
+  if (req.url === '/login.html' || req.url === '/login.js') {
+    res.setHeader('cache-control', 'no-store');
+    res.setHeader('content-security-policy', "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+  }
 
-  const file = safeFilePath(req.url || '/');
+  let file;
+  try { file = safeFilePath(req.url || '/'); }
+  catch { return sendText(res, 400, 'Invalid path'); }
   if (!file) {
     sendText(res, 404, 'Not found');
     return;
