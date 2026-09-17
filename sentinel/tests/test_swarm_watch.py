@@ -616,6 +616,96 @@ class SwarmDefenseTests(unittest.TestCase):
         self.assertTrue(third_event_codes.isdisjoint(first_event_codes))
         self.assertEqual(third["resolved_count"], 0)
 
+    def test_signed_android_event_watermark_survives_failures_and_denials(
+        self,
+    ) -> None:
+        self.use_object_sensors()
+        self.snapshot["events"] = [
+            package_event(process=PACKAGE_A),
+            permission_event(process=PACKAGE_B),
+        ]
+        self.require_verified_ingestion()
+        self.write_proof()
+
+        for interruption in ("observe", "evaluate", "authorization"):
+            with self.subTest(interruption=interruption):
+                state_path = self.root / f"state-{interruption}.json"
+                pack = self.pack()
+                engine = SentinelEngine(StateStore(state_path), [pack])
+
+                first = engine.run([self.target])
+                first_event_codes = {
+                    item["code"]
+                    for item in first["results"][0]["new_alerts"]
+                    if item["code"].startswith(
+                        ("SWARM_PACKAGE_", "SWARM_PERMISSION_")
+                    )
+                }
+                self.assertEqual(len(first_event_codes), 2)
+                first_state = json.loads(
+                    state_path.read_text(encoding="utf-8")
+                )["targets"][self.target["id"]]
+                first_batch_id = first_state["observation"]["facts"][
+                    "android_event_batch_id"
+                ]
+
+                if interruption == "observe":
+                    with patch.object(
+                        pack,
+                        "observe",
+                        side_effect=RuntimeError("transient observation failure"),
+                    ):
+                        interrupted = engine.run([self.target])
+                    expected_code = "PACK_EXECUTION_FAILED"
+                elif interruption == "evaluate":
+                    with patch.object(
+                        pack,
+                        "evaluate",
+                        side_effect=RuntimeError("transient evaluation failure"),
+                    ):
+                        interrupted = engine.run([self.target])
+                    expected_code = "PACK_EXECUTION_FAILED"
+                else:
+                    denied_target = {
+                        **self.target,
+                        "authorization": {"mode": "public"},
+                    }
+                    interrupted = engine.run([denied_target])
+                    expected_code = "AUTHORIZATION_SCOPE_DENIED"
+
+                interrupted_codes = {
+                    item["code"]
+                    for item in interrupted["results"][0]["new_alerts"]
+                }
+                self.assertIn(expected_code, interrupted_codes)
+
+                interrupted_state = json.loads(
+                    state_path.read_text(encoding="utf-8")
+                )["targets"][self.target["id"]]
+                self.assertEqual(
+                    interrupted_state["last_successful_observation"]["facts"][
+                        "android_event_batch_id"
+                    ],
+                    first_batch_id,
+                )
+
+                recovered = engine.run([self.target])
+                recovered_event_codes = {
+                    item["code"]
+                    for item in recovered["results"][0]["new_alerts"]
+                    if item["code"].startswith(
+                        ("SWARM_PACKAGE_", "SWARM_PERMISSION_")
+                    )
+                }
+                self.assertEqual(recovered_event_codes, set())
+                recovered_state = json.loads(
+                    state_path.read_text(encoding="utf-8")
+                )["targets"][self.target["id"]]
+                self.assertNotIn(
+                    "last_successful_observation",
+                    recovered_state,
+                )
+
     def test_each_newly_failed_posture_control_alerts_independently(self) -> None:
         self.use_object_sensors()
         self.snapshot["posture"]["screen_lock"] = False

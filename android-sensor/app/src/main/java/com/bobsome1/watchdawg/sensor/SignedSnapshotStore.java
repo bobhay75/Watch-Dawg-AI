@@ -13,6 +13,19 @@ public final class SignedSnapshotStore {
     private SignedSnapshotStore() {}
 
     public static synchronized String collectAndSave(Context context) throws Exception {
+        return collectAndSave(context, null);
+    }
+
+    static synchronized boolean collectAndSavePeriodic(
+            Context context, PeriodicCollectionGate.Permit publicationPermit) throws Exception {
+        if (publicationPermit == null) {
+            throw new NullPointerException("publicationPermit");
+        }
+        return collectAndSave(context, publicationPermit) != null;
+    }
+
+    private static String collectAndSave(
+            Context context, PeriodicCollectionGate.Permit publicationPermit) throws Exception {
         SnapshotOutbox outbox = preparedOutbox(context);
         outbox.requireCapacity();
         SequenceUpdate sequence = prepareSequence(context, outbox);
@@ -28,7 +41,7 @@ public final class SignedSnapshotStore {
         if (verifiedEnvelope.sequence != sequence.value()) {
             throw new IllegalStateException("Signed snapshot sequence changed before enqueue");
         }
-        DurableThenCheckpoint.run(
+        DurableThenCheckpoint.CheckedAction publication = () -> DurableThenCheckpoint.run(
                 () -> outbox.enqueue(verifiedEnvelope),
                 () -> {
                     // Reserve the now-durable sequence first. If the evidence checkpoint
@@ -36,6 +49,13 @@ public final class SignedSnapshotStore {
                     sequence.commit();
                     collection.commitState();
                 });
+        if (publicationPermit == null) {
+            // Manual owner-requested scans are intentionally independent of periodic consent.
+            publication.run();
+        } else if (!CollectionScheduler.publishIfStillEnabled(
+                publicationPermit, publication)) {
+            return null;
+        }
         return envelope;
     }
 

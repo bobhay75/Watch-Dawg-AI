@@ -11,6 +11,8 @@ public final class CollectionScheduler {
     private static final String PREFERENCES = "watchdawg_schedule";
     private static final String ENABLED = "enabled";
     private static final long INTERVAL_MILLIS = 15L * 60L * 1000L;
+    private static final PeriodicCollectionGate PUBLICATION_GATE =
+            new PeriodicCollectionGate();
 
     private CollectionScheduler() {}
 
@@ -31,18 +33,31 @@ public final class CollectionScheduler {
         }
         if (!context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
                 .edit().putBoolean(ENABLED, true).commit()) {
+            // SharedPreferences can update its in-process map even when the durable write fails.
+            // Keep a stale callback from treating that failed opt-in as authorization.
+            PUBLICATION_GATE.revoke();
             scheduler.cancel(JOB_ID);
             throw new IllegalStateException("Could not persist periodic collection preference");
         }
+        PUBLICATION_GATE.grant();
     }
 
     public static void disable(Context context) {
         JobScheduler scheduler = (JobScheduler) context.getSystemService(Context.JOB_SCHEDULER_SERVICE);
-        if (scheduler != null) {
-            scheduler.cancel(JOB_ID);
+        // Revoke first. A worker that is still collecting may finish that non-durable work, but
+        // cannot enqueue or checkpoint after this gate has been crossed. If publication already
+        // owns the gate, revocation linearizes immediately after that publication completes.
+        PUBLICATION_GATE.revoke();
+        boolean persisted = false;
+        try {
+            persisted = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+                    .edit().putBoolean(ENABLED, false).commit();
+        } finally {
+            if (scheduler != null) {
+                scheduler.cancel(JOB_ID);
+            }
         }
-        if (!context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-                .edit().putBoolean(ENABLED, false).commit()) {
+        if (!persisted) {
             throw new IllegalStateException("Could not persist periodic collection preference");
         }
     }
@@ -56,5 +71,19 @@ public final class CollectionScheduler {
         if (isEnabled(context)) {
             enable(context);
         }
+    }
+
+    static PeriodicCollectionGate.Permit beginPeriodicRun(Context context) {
+        return PUBLICATION_GATE.open(isEnabled(context));
+    }
+
+    static boolean publishIfStillEnabled(
+            PeriodicCollectionGate.Permit permit,
+            DurableThenCheckpoint.CheckedAction publication) throws Exception {
+        return PUBLICATION_GATE.publish(permit, publication);
+    }
+
+    static void cancelPeriodicRun(PeriodicCollectionGate.Permit permit) {
+        PUBLICATION_GATE.cancel(permit);
     }
 }

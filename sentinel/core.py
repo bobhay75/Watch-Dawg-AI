@@ -265,6 +265,14 @@ class StateStore:
             observation = target_state.get("observation")
             if observation is not None and not isinstance(observation, dict):
                 raise ValueError("invalid Sentinel observation state")
+            last_successful_observation = target_state.get(
+                "last_successful_observation"
+            )
+            if (
+                last_successful_observation is not None
+                and not isinstance(last_successful_observation, dict)
+            ):
+                raise ValueError("invalid Sentinel observation state")
             active_findings = target_state.get("active_findings")
             if active_findings is not None:
                 if not isinstance(active_findings, dict):
@@ -357,7 +365,12 @@ class SentinelEngine:
             raise ValueError(f"no watch pack registered for kind: {kind}")
 
         target_state = state["targets"].get(target_id, {})
-        previous_data = target_state.get("observation")
+        latest_data = target_state.get("observation")
+        last_successful_data = target_state.get("last_successful_observation")
+        # A failed/denied run remains the latest audit observation, but packs
+        # compare against the last observation that completed successfully.
+        # This keeps event watermarks stable across transient failures.
+        previous_data = last_successful_data or latest_data
         previous = Observation.from_dict(previous_data) if previous_data else None
         prior_active = {
             key: Finding.from_dict(value)
@@ -366,6 +379,7 @@ class SentinelEngine:
 
         denial = self._authorization_denial(target, pack)
         preserve_prior_active = False
+        evaluation_succeeded = False
         if denial:
             current = Observation(
                 target_id=target_id,
@@ -379,6 +393,7 @@ class SentinelEngine:
             try:
                 current = pack.observe(target)
                 findings = pack.evaluate(target, current, previous)
+                evaluation_succeeded = True
                 preserve_prior_active = (
                     current.facts.get("preserve_prior_active_findings") is True
                 )
@@ -441,13 +456,30 @@ class SentinelEngine:
         )
         verdict = self._verdict(findings)
 
-        state["targets"][target_id] = {
+        next_target_state = {
             "observation": current.to_dict(),
             "active_findings": {
                 fingerprint: finding.to_dict()
                 for fingerprint, finding in active.items()
             },
         }
+        if not (
+            evaluation_succeeded
+            and current.ok
+            and not preserve_prior_active
+        ):
+            baseline_data = last_successful_data
+            if baseline_data is None and latest_data is not None:
+                latest = Observation.from_dict(latest_data)
+                if (
+                    latest.ok
+                    and latest.facts.get("preserve_prior_active_findings")
+                    is not True
+                ):
+                    baseline_data = latest_data
+            if baseline_data is not None:
+                next_target_state["last_successful_observation"] = baseline_data
+        state["targets"][target_id] = next_target_state
         return {
             "target_id": target_id,
             "kind": kind,

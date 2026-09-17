@@ -14,6 +14,13 @@ public final class CollectionJobService extends JobService {
 
     @Override
     public boolean onStartJob(JobParameters parameters) {
+        PeriodicCollectionGate.Permit publicationPermit =
+                CollectionScheduler.beginPeriodicRun(getApplicationContext());
+        if (publicationPermit == null) {
+            // A stale callback can arrive after cancellation. Do not start collection without
+            // persisted owner consent.
+            return false;
+        }
         final ActiveRun run;
         synchronized (runLock) {
             // JobScheduler does not normally overlap one JobInfo, but refusing an
@@ -23,6 +30,7 @@ public final class CollectionJobService extends JobService {
             }
             run = new ActiveRun(
                     runGate.open(),
+                    publicationPermit,
                     parameters,
                     Executors.newSingleThreadExecutor());
             activeRun = run;
@@ -31,7 +39,8 @@ public final class CollectionJobService extends JobService {
                 // can therefore never observe this run before its cancellable task.
                 run.pending = run.executor.submit(() -> {
                     try {
-                        SignedSnapshotStore.collectAndSave(getApplicationContext());
+                        SignedSnapshotStore.collectAndSavePeriodic(
+                                getApplicationContext(), run.publicationPermit);
                     } catch (Exception ignored) {
                         // A later job retries. No sensitive device data or credentials
                         // are logged.
@@ -42,6 +51,7 @@ public final class CollectionJobService extends JobService {
             } catch (RuntimeException submissionFailure) {
                 runGate.stop(run.token);
                 activeRun = null;
+                CollectionScheduler.cancelPeriodicRun(run.publicationPermit);
                 run.executor.shutdownNow();
                 return false;
             }
@@ -63,9 +73,12 @@ public final class CollectionJobService extends JobService {
             if (!runGate.stop(stopped.token)) {
                 return false;
             }
+            // Close durable publication before relinquishing run ownership. Otherwise the worker
+            // could enter the publication gate between this synchronized block and interruption.
+            stopped.invalidatePublication();
             activeRun = null;
         }
-        stopped.cancel();
+        stopped.interrupt();
         return true;
     }
 
@@ -75,13 +88,14 @@ public final class CollectionJobService extends JobService {
         synchronized (runLock) {
             stopped = activeRun;
             if (stopped != null && runGate.stop(stopped.token)) {
+                stopped.invalidatePublication();
                 activeRun = null;
             } else {
                 stopped = null;
             }
         }
         if (stopped != null) {
-            stopped.cancel();
+            stopped.interrupt();
         }
         super.onDestroy();
     }
@@ -105,20 +119,27 @@ public final class CollectionJobService extends JobService {
 
     private static final class ActiveRun {
         private final long token;
+        private final PeriodicCollectionGate.Permit publicationPermit;
         private final JobParameters parameters;
         private final ExecutorService executor;
         private volatile Future<?> pending;
 
         private ActiveRun(
                 long token,
+                PeriodicCollectionGate.Permit publicationPermit,
                 JobParameters parameters,
                 ExecutorService executor) {
             this.token = token;
+            this.publicationPermit = publicationPermit;
             this.parameters = parameters;
             this.executor = executor;
         }
 
-        private void cancel() {
+        private void invalidatePublication() {
+            CollectionScheduler.cancelPeriodicRun(publicationPermit);
+        }
+
+        private void interrupt() {
             Future<?> task = pending;
             if (task != null) {
                 task.cancel(true);

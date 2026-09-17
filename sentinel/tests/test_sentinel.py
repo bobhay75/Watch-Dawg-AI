@@ -205,6 +205,10 @@ class StateStoreTests(unittest.TestCase):
             {"version": 1, "targets": []},
             {"version": 1, "targets": {"x": []}},
             {"version": 1, "targets": {"x": {"observation": []}}},
+            {
+                "version": 1,
+                "targets": {"x": {"last_successful_observation": []}},
+            },
             {"version": 1, "targets": {"x": {"active_findings": []}}},
         )
         with tempfile.TemporaryDirectory() as directory:
