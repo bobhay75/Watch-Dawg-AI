@@ -16,11 +16,14 @@ from pathlib import Path
 from typing import Any, Final
 from urllib.parse import urlsplit
 
+from .ai_system_watch import AiSystemRiskWatchPack
 from .cli import load_config
 from .core import SentinelEngine, StateStore
 from .domain_watch import DnsTlsWatchPack
 from .http_watch import HttpWatchPack
 from .log_watch import AccessLogWatchPack
+from .secret_watch import SecretExposureWatchPack
+from .service_watch import ServiceExposureWatchPack
 from .sitemap_watch import SitemapWatchPack
 
 
@@ -143,6 +146,8 @@ def load_profile_paths(raw: str | None, config_root: Path) -> dict[str, Path]:
 def run_profile(config_path: Path, state_path: Path) -> dict[str, Any]:
     config = load_config(config_path)
     log_root = Path(config.get("log_root", "."))
+    secret_root = Path(config.get("secret_root", "."))
+    ai_manifest_root = Path(config.get("ai_manifest_root", "."))
     engine = SentinelEngine(
         StateStore(state_path),
         [
@@ -150,6 +155,9 @@ def run_profile(config_path: Path, state_path: Path) -> dict[str, Any]:
             DnsTlsWatchPack(),
             SitemapWatchPack(),
             AccessLogWatchPack(log_root),
+            ServiceExposureWatchPack(),
+            SecretExposureWatchPack(secret_root),
+            AiSystemRiskWatchPack(ai_manifest_root),
         ],
     )
     return engine.run(config["targets"])
