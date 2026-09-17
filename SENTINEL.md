@@ -4,11 +4,34 @@ Watch-Dawg is an authorized deep-audit and preventive-intelligence engine. Set i
 
 The operating rule is **observe, prove, diagnose, improve, verify; human decides**. Every supported finding identifies the deficit, explains why it matters, proposes the smallest preventive correction, names the efficiency or prosperity lever, defines a success measure, and states how to verify the result. It never invents a dollar value: financial impact remains `NOT CALCULATED` until sufficient volume, cost, revenue, time, or conversion evidence exists.
 
-## Swarm Defense shadow module
+## Swarm Defense device pilot
 
-The optional `swarm_device` watch pack evaluates a locally produced snapshot for camera, microphone, identity, process, network, device-posture, and private-mesh risk signals. It is disabled unless a target explicitly sets `enabled: true`, requires an unexpired owner/contract authorization whose device and path match exactly, and accepts only `shadow` or `advisory` mode.
+The optional `swarm_device` watch pack evaluates an authorized device snapshot
+for package/process, permission, device-posture, network, and collection-coverage
+signals. The Android pilot does not implement a device mesh; its signed schema
+reports mesh disabled.
+It is disabled unless a target explicitly sets `enabled: true`, requires an
+unexpired owner/contract authorization whose device and path match exactly, and
+accepts only `shadow` or `advisory` mode.
 
-It never installs an agent, scans a network, records media, blocks a process, changes an account, patches software, or executes a response. Sensitive destinations are represented by truncated SHA-256 evidence rather than raw values. Any future containment action must pass the existing human-approval boundary and an optional ProofPass adapter.
+An owner-installed Android sensor can now collect signals exposed to an
+ordinary app, pseudonymize package names on device, sign the canonical snapshot
+with an Android Keystore ECDSA P-256 key, and submit it to the optional
+`POST /v1/swarm/snapshot` ingest route over HTTPS. Ingest requires an exact
+per-device token and enrolled public key, verifies a monotonic sequence, rejects
+altered or older replay attempts, treats an exact already-accepted retry as
+idempotent, and preserves each accepted signed payload, original device
+signature, and server-HMAC-authenticated verification sidecar. The evaluator—not ingest—gates
+stale or future telemetry before drawing conclusions. See
+[`docs/ANDROID-SENSOR.md`](docs/ANDROID-SENSOR.md) for the
+build, enrollment, consent, verification, and threat-model runbook.
+
+Android does not expose reliable cross-app camera/microphone activity to an
+ordinary app. Permission-plus-foreground correlation is therefore an
+`INFERENCE`, not proof of sensor use. The pilot does not scan a network, record
+media, inspect packets, install a VPN, block a process, change an account, patch
+software, or execute a response. Any future containment action must pass the
+existing human-approval boundary and an optional ProofPass adapter.
 
 Run the harmless local example:
 
@@ -130,7 +153,14 @@ The traffic-log pack rejects `public` mode. Missing or insufficient authority is
 
 ## Run it
 
-No new runtime dependency is required:
+The original watch packs use the standard library. Verified Android ingest
+adds the pinned `cryptography` dependency:
+
+```bash
+python -m pip install --requirement sentinel/requirements.txt
+```
+
+Run Sentinel:
 
 ```bash
 python -m sentinel.cli \
@@ -182,7 +212,10 @@ Security controls in the first service boundary:
 - a bearer token of at least 32 characters is required for every run;
 - profile names and configuration paths are server-owned and fail closed;
 - configuration paths cannot escape the configured root;
-- request bodies are limited to 2 KiB and may contain only `profile`;
+- `/v1/run` bodies are limited to 2 KiB and may contain only `profile`;
+- the optional `/v1/swarm/snapshot` route is absent until at least one device
+  enrollment is configured; it has a separate 512 KB limit, per-device token,
+  signature, strict-schema, replay, immutable-history, and rate-limit boundary;
 - a process-wide request limit and per-profile cooldown bound repeat observation;
 - simultaneous runs of one profile are rejected to protect its state file;
 - responses are non-cacheable and return defensive browser headers;

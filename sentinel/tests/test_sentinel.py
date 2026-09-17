@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import json
+import os
+import stat
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 from sentinel.core import Finding, Observation, SentinelEngine, StateStore
 from sentinel.http_watch import (
@@ -48,6 +52,179 @@ class FakeHttpFetcher:
             "body_bytes": len(self.body),
             "truncated": False,
         }
+
+
+class StateStoreTests(unittest.TestCase):
+    def test_save_creates_a_private_parent_and_private_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory) / "state"
+            state_path = parent / "sentinel.json"
+
+            StateStore(state_path).save({"version": 1, "targets": {}})
+
+            self.assertEqual(stat.S_IMODE(parent.stat().st_mode), 0o700)
+            self.assertEqual(stat.S_IMODE(state_path.stat().st_mode), 0o600)
+            self.assertEqual(
+                json.loads(state_path.read_text(encoding="utf-8")),
+                {"version": 1, "targets": {}},
+            )
+
+    def test_save_does_not_chmod_an_existing_shared_parent(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory) / "shared"
+            parent.mkdir(mode=0o755)
+            os.chmod(parent, 0o755)
+            state_path = parent / "sentinel.json"
+            state_path.write_text("old\n", encoding="utf-8")
+            os.chmod(state_path, 0o666)
+
+            StateStore(state_path).save({"version": 1, "targets": {}})
+
+            self.assertEqual(stat.S_IMODE(parent.stat().st_mode), 0o755)
+            self.assertEqual(stat.S_IMODE(state_path.stat().st_mode), 0o600)
+
+    def test_replace_failure_preserves_old_state_and_removes_temporary(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "state.json"
+            store = StateStore(state_path)
+            original = {"version": 1, "targets": {}}
+            store.save(original)
+
+            with mock.patch("sentinel.core.os.replace", side_effect=OSError("fault")):
+                with self.assertRaises(OSError):
+                    store.save({"version": 1, "targets": {"new": {}}})
+
+            self.assertEqual(store.load(), original)
+            self.assertEqual(list(state_path.parent.glob(".state.json.*.tmp")), [])
+
+    def test_write_fsync_failure_removes_temporary_without_replacing_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "state.json"
+            store = StateStore(state_path)
+            original = {"version": 1, "targets": {}}
+            store.save(original)
+
+            with mock.patch("sentinel.core.os.fsync", side_effect=OSError("fault")):
+                with self.assertRaises(OSError):
+                    store.save({"version": 1, "targets": {"new": {}}})
+
+            self.assertEqual(store.load(), original)
+            self.assertEqual(list(state_path.parent.glob(".state.json.*.tmp")), [])
+
+    def test_parent_permission_failure_stops_before_writing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory) / "state"
+            state_path = parent / "state.json"
+
+            with mock.patch(
+                "sentinel.core.os.chmod",
+                side_effect=PermissionError("denied"),
+            ):
+                with self.assertRaises(PermissionError):
+                    StateStore(state_path).save({"version": 1, "targets": {}})
+
+            self.assertFalse(state_path.exists())
+            self.assertEqual(list(parent.glob(".state.json.*.tmp")), [])
+
+    def test_temporary_permission_failure_closes_and_removes_temporary(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "state.json"
+
+            with mock.patch(
+                "sentinel.core.os.fchmod",
+                side_effect=PermissionError("denied"),
+            ):
+                with self.assertRaises(PermissionError):
+                    StateStore(state_path).save({"version": 1, "targets": {}})
+
+            self.assertFalse(state_path.exists())
+            self.assertEqual(list(state_path.parent.glob(".state.json.*.tmp")), [])
+
+    def test_load_rejects_oversized_state_before_parsing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "state.json"
+            with state_path.open("wb") as state_file:
+                state_file.truncate(StateStore.MAX_STATE_BYTES + 1)
+
+            with self.assertRaisesRegex(ValueError, "size limit"):
+                StateStore(state_path).load()
+
+    def test_load_repairs_owned_regular_state_permissions(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "state.json"
+            state_path.write_text(
+                '{"version":1,"targets":{}}',
+                encoding="utf-8",
+            )
+            os.chmod(state_path, 0o644)
+
+            self.assertEqual(
+                StateStore(state_path).load(),
+                {"version": 1, "targets": {}},
+            )
+            self.assertEqual(stat.S_IMODE(state_path.stat().st_mode), 0o600)
+
+    def test_load_rejects_symlink_without_changing_target_permissions(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target.json"
+            target.write_text(
+                '{"version":1,"targets":{}}',
+                encoding="utf-8",
+            )
+            os.chmod(target, 0o644)
+            state_path = root / "state.json"
+            state_path.symlink_to(target)
+
+            with self.assertRaisesRegex(ValueError, "symbolic link"):
+                StateStore(state_path).load()
+
+            self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o644)
+
+    def test_load_rejects_duplicate_keys_and_nonfinite_numbers(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "state.json"
+            state_path.write_text(
+                '{"version":1,"targets":{},"targets":{}}',
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "duplicate"):
+                StateStore(state_path).load()
+
+            state_path.write_text(
+                '{"version":1,"targets":{"x":{"score":NaN}}}',
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "non-finite"):
+                StateStore(state_path).load()
+
+    def test_load_rejects_invalid_basic_shapes_and_types(self) -> None:
+        invalid_payloads = (
+            [],
+            {"version": True, "targets": {}},
+            {"version": 1, "targets": []},
+            {"version": 1, "targets": {"x": []}},
+            {"version": 1, "targets": {"x": {"observation": []}}},
+            {"version": 1, "targets": {"x": {"active_findings": []}}},
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "state.json"
+            store = StateStore(state_path)
+            for payload in invalid_payloads:
+                with self.subTest(payload=payload):
+                    state_path.write_text(json.dumps(payload), encoding="utf-8")
+                    with self.assertRaises(ValueError):
+                        store.load()
+
+    def test_save_rejects_non_json_values_without_creating_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "state.json"
+            payload = {"version": 1, "targets": {"x": {"value": (1, 2)}}}
+
+            with self.assertRaisesRegex(ValueError, "non-JSON"):
+                StateStore(state_path).save(payload)
+
+            self.assertFalse(state_path.exists())
 
 
 class SentinelEngineTests(unittest.TestCase):

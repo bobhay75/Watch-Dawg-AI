@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ from .log_watch import AccessLogWatchPack
 from .secret_watch import SecretExposureWatchPack
 from .service_watch import ServiceExposureWatchPack
 from .sitemap_watch import SitemapWatchPack
+from .swarm_proof import load_proof_hmac_key
 from .swarm_watch import SwarmDefenseWatchPack
 
 
@@ -38,6 +40,10 @@ def main() -> int:
     secret_root = Path(config.get("secret_root", "."))
     ai_manifest_root = Path(config.get("ai_manifest_root", "."))
     swarm_snapshot_root = Path(config.get("swarm_snapshot_root", "."))
+    proof_hmac_key = load_proof_hmac_key(
+        os.environ.get("SENTINEL_SWARM_PROOF_HMAC_KEY_BASE64"),
+        required=False,
+    )
     engine = SentinelEngine(
         StateStore(args.state),
         [
@@ -48,7 +54,10 @@ def main() -> int:
             ServiceExposureWatchPack(),
             SecretExposureWatchPack(secret_root),
             AiSystemRiskWatchPack(ai_manifest_root),
-            SwarmDefenseWatchPack(swarm_snapshot_root),
+            SwarmDefenseWatchPack(
+                swarm_snapshot_root,
+                proof_hmac_key=proof_hmac_key,
+            ),
         ],
     )
     result = engine.run(config["targets"])
