@@ -667,6 +667,11 @@
             signal: aiAbortController.signal
           });
 
+          if (response.status === 401 || response.status === 403) {
+            aiStatus.textContent = 'AI analysis locked';
+            aiInsights.textContent = 'Paid AI analysis requires authenticated access. Your deterministic audit is complete and available below.';
+            return;
+          }
           if (!response.ok || !response.body) throw new Error('AI service unavailable');
 
           const reader = response.body.getReader();

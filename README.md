@@ -136,9 +136,13 @@ export REACT_APP_BACKEND_URL='http://localhost:8001'
 export WATCH_DAWG_AI_API_TOKEN='THE_SAME_SERVER_SIDE_SECRET'
 ```
 
-The frontend proxy injects this token server-side; never expose it to browser
-JavaScript. Never commit `.env` files, API keys, credentials, or
-service-account secrets.
+The proxy requires the caller to supply a valid bearer token and never adds
+credentials to anonymous requests. Paid browser analysis is locked until an
+authenticated user/session integration is provided. The deterministic browser
+demo still works. Keep this shared service credential in trusted API clients;
+never embed it in browser JavaScript or browser storage. Both servers reject
+API bodies larger than 64,000 bytes before forwarding or JSON parsing, including
+chunked bodies. Never commit `.env` files, keys, or service-account secrets.
 
 Start the backend:
 

@@ -23,6 +23,11 @@ from emergentintegrations.llm.chat import (  # type: ignore[import-untyped]
     UserMessage,
 )
 
+if __package__:
+    from .request_boundary import PaidAIBoundary
+else:
+    from request_boundary import PaidAIBoundary
+
 load_dotenv()
 
 MONGO_URL: str | None = os.environ.get("MONGO_URL")
@@ -51,6 +56,9 @@ if not MONGO_URL or not DB_NAME:
     raise RuntimeError("MONGO_URL and DB_NAME are required")
 
 app = FastAPI(title="Watch-Dawg AI API")
+app.add_middleware(
+    PaidAIBoundary, token=AI_API_TOKEN, maximum=MAX_AI_REQUEST_BYTES
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,

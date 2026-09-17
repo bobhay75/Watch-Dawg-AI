@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { readFileSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
@@ -28,7 +29,7 @@ const root = '/app';
 const backend = process.env.REACT_APP_BACKEND_URL;
 const aiApiToken = process.env.WATCH_DAWG_AI_API_TOKEN;
 
-if (!port || !host || !backend || !aiApiToken || aiApiToken.length < 32) {
+if (!port || !host || !backend || !aiApiToken || aiApiToken.length < 32 || /\s/.test(aiApiToken)) {
   throw new Error(
     'HOST, PORT, REACT_APP_BACKEND_URL, and a 32+ character '
     + 'WATCH_DAWG_AI_API_TOKEN are required',
@@ -42,13 +43,46 @@ const types = new Map([
   ['.json', 'application/json; charset=utf-8'],
 ]);
 
-function proxyApi(req, res) {
+const maxRequestBytes = 64_000;
+
+async function proxyApi(req, res) {
+  // Never turn an anonymous browser request into a privileged service request.
+  const supplied = Buffer.from(req.headers.authorization || '');
+  const expected = Buffer.from(`Bearer ${aiApiToken}`);
+  const publicHealth = req.method === 'GET' && req.url === '/api/health';
+  if (!publicHealth && (supplied.length !== expected.length || !timingSafeEqual(supplied, expected))) {
+    res.writeHead(401, { 'content-type': 'application/json', 'www-authenticate': 'Bearer' });
+    res.end(JSON.stringify({ detail: 'Authenticated API access is required' }));
+    return;
+  }
+  if (Number(req.headers['content-length']) > maxRequestBytes) {
+    sendText(res, 413, 'Request body is too large');
+    return;
+  }
+  // Buffer only a bounded body; no upstream request exists until it is accepted.
+  const chunks = [];
+  let bytes = 0;
+  try {
+    for await (const chunk of req.iterator({ destroyOnReturn: false })) {
+      bytes += chunk.length;
+      if (bytes > maxRequestBytes) {
+        sendText(res, 413, 'Request body is too large');
+        req.resume();
+        return;
+      }
+      chunks.push(chunk);
+    }
+  } catch {
+    if (!res.destroyed) sendText(res, 400, 'Incomplete request body');
+    return;
+  }
   const target = new URL(req.url, backend);
   const headers = {
     ...req.headers,
     host: target.host,
-    authorization: `Bearer ${aiApiToken}`,
   };
+  delete headers['transfer-encoding'];
+  headers['content-length'] = String(bytes);
   const proxy = http.request(
     target,
     { method: req.method, headers },
@@ -61,7 +95,7 @@ function proxyApi(req, res) {
     res.writeHead(502, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ detail: 'API service unavailable' }));
   });
-  req.pipe(proxy);
+  proxy.end(Buffer.concat(chunks, bytes));
 }
 
 function safeFilePath(urlPath) {
