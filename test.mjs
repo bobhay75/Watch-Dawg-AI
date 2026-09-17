@@ -58,6 +58,12 @@ for(const id of ['demo','jump','score','headline','audit','s1','s2','s3','s4','a
 }
 assert.match(publicDemo,/prefers-reduced-motion/,'public demo must respect reduced motion');
 assert.match(publicDemo,/aria-live="polite"/,'dynamic demo output must be announced');
+assert.match(publicDemo,/id="score"[^>]*aria-labelledby="score-label"[^>]*>—<\/output>/,'the DAWG score must start unknown and have an accessible name');
+assert.match(publicDemo,/id="headline">SIMULATION READY</,'the demo must not claim an audit result before it runs');
+assert.doesNotMatch(publicDemo,/>System standing watch</,'the public demo must not imply active monitoring before a run');
+assert.doesNotMatch(publicDemo,/Run the 60-second hunt/,'the demo call to action must not promise a false duration');
+assert.match(publicDemo,/id="sequence-title">Watch-Dawg operating sequence<\/h2>/,'the operating sequence must preserve the heading hierarchy');
+assert.match(publicDemo,/byId\("target"\)\.focus\(\{ preventScroll: true \}\)/,'the authorized-site shortcut must move keyboard focus to the target field');
 assert.match(publicDemo,/from\s+["']\.\/watchdawg\.js["']/,'public demo must use the tested audit core');
 assert.match(publicDemo,/I own this target or have explicit authorization/,'live intake must keep its authorization gate');
 assert.match(publicDemo,/No intrusive scan was launched from your browser/,'live intake must state its defensive boundary');

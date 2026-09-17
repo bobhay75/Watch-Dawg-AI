@@ -71,6 +71,15 @@
     }
     .skip-link:focus { transform: none; }
 
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
     .page-progress {
       position: fixed;
       z-index: 1000;
@@ -519,7 +528,7 @@
       <span>WATCH-DAWG <span class="brand-accent">+ KEY-9</span></span>
     </a>
     <div class="top-status" aria-label="Public demo status">
-      <span class="chip chip-live">System standing watch</span>
+      <span class="chip chip-live">Public demo ready</span>
       <span class="chip">Authorized defensive security</span>
     </div>
   </header>
@@ -531,7 +540,7 @@
         <h1 id="hero-title">Risk leaves <span class="outline">a trail.</span></h1>
         <p class="lead">Watch-Dawg follows the trail from operational anomaly to human decision. KEY-9 keeps protected AI actions behind policy, approval, and isolated credentials.</p>
         <div class="actions">
-          <button class="action action-primary" id="demo" type="button">Run the 60-second hunt <span aria-hidden="true">↗</span></button>
+          <button class="action action-primary" id="demo" type="button">Run the anomaly hunt <span aria-hidden="true">↗</span></button>
           <button class="action" id="jump" type="button">Check my authorized site</button>
         </div>
         <ul class="trust-row" aria-label="System boundaries">
@@ -545,9 +554,9 @@
         <div class="sentinel">
           <canvas id="sentinel-field" aria-hidden="true"></canvas>
           <div class="sentinel-center">
-            <span class="score-label">DAWG score</span>
-            <output class="metric" id="score" aria-live="polite">100</output>
-            <span class="score-state" id="headline">STANDING WATCH</span>
+            <span class="score-label" id="score-label">DAWG score</span>
+            <output class="metric" id="score" aria-live="polite" aria-labelledby="score-label">—</output>
+            <span class="score-state" id="headline">SIMULATION READY</span>
           </div>
           <div class="sentinel-caption" aria-hidden="true">
             <span>Public simulation / no live scan</span>
@@ -557,7 +566,8 @@
       </div>
     </section>
 
-    <div class="shell signal-strip" aria-label="Watch-Dawg operating sequence">
+    <div class="shell signal-strip" aria-labelledby="sequence-title">
+      <h2 class="sr-only" id="sequence-title">Watch-Dawg operating sequence</h2>
       <article class="signal phase" data-reveal><span class="signal-index">01</span><h3>Hunt</h3><p>Surface anomalies and exposed risk.</p></article>
       <article class="signal phase" data-reveal style="--delay:55ms"><span class="signal-index">02</span><h3>Explain</h3><p>Show the evidence and likely impact.</p></article>
       <article class="signal phase" data-reveal style="--delay:110ms"><span class="signal-index">03</span><h3>Gate</h3><p>Stop protected actions at KEY-9.</p></article>
@@ -737,6 +747,7 @@ Run the demo, inspect the finding, and choose whether to approve the protected a
     });
 
     byId("jump").addEventListener("click", () => {
+      byId("target").focus({ preventScroll: true });
       byId("live").scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth" });
     });
 
