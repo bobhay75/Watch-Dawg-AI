@@ -18,7 +18,14 @@ It does not promise to watch literally everything. It can watch nearly any obser
 - configured response headers;
 - JSON-LD event Offer prices, including the Black Oak zero-price defect.
 
-The public fetcher performs one bounded request per configured target. It does not scan ports, submit forms, bypass access controls, or accept private, loopback, link-local, or reserved network targets.
+For each request, the public fetcher resolves the hostname once, rejects the
+entire answer if any address is non-public, and connects only to a vetted
+numeric address while preserving the HTTP Host header and HTTPS certificate
+verification/SNI. Redirects are limited to five, are resolved and pinned again,
+and may not cross origins. Only an explicit safe response-header allowlist is
+retained, and persisted URLs omit user information, query strings, and
+fragments. The fetcher does not scan ports, submit forms, bypass access
+controls, or accept private, loopback, link-local, or reserved targets.
 
 ### DNS and TLS pack
 
@@ -27,7 +34,11 @@ The public fetcher performs one bounded request per configured target. It does n
 - negotiated TLS-version policy;
 - certificate subject, issuer, and expiry evidence.
 
-The domain pack accepts only plain public hostnames, performs one DNS resolution and one ordinary TLS handshake, rejects non-public addresses, and treats DNS changes as one-time events rather than permanent alarms.
+The domain pack accepts only plain public hostnames, performs one DNS resolution,
+rejects the entire answer if any address is non-public, and connects only to a
+vetted numeric address while retaining hostname SNI and certificate
+verification. It treats DNS changes as one-time events rather than permanent
+alarms.
 
 ### Sitemap integrity pack
 
@@ -37,7 +48,10 @@ The domain pack accepts only plain public hostnames, performs one DNS resolution
 - minimum URL-count checks;
 - one-time URL-set change alerts without false recoveries.
 
-The pack has explicit limits of at most 10 child sitemaps and 100 page URLs. It validates each public URL before fetching and never follows cross-origin sitemap entries.
+The pack has explicit limits of at most 3 child sitemaps and 25 page URLs, a
+maximum 29-request budget, and an absolute run deadline capped at 120 seconds.
+Every network request uses the pinned public fetcher, and cross-origin sitemap
+entries and redirects are never followed.
 
 ### Owned traffic-log pack
 
@@ -55,6 +69,7 @@ Client IPs are hashed before entering observations. A probe-pattern match is lab
 - requires `owner` or `contract` authority with a record ID, exact host and port
   scope, approved `tcp-connect` method, and unexpired authorization;
 - compares reachable ports with an approved open-service baseline;
+- connects only to numeric public addresses from the single vetted DNS answer;
 - collects no banners and sends no exploit or authentication payloads.
 
 This is bounded service discovery, not a general port scanner. Port ranges,
@@ -69,8 +84,8 @@ evasion, persistence, and lateral movement are not supported.
 - limits each run to 50 files and each file to 1 MB;
 - recognizes selected private-key, cloud-key, GitHub-token, and hard-coded
   secret patterns;
-- emits only the rule, file, line, and a truncated SHA-256 fingerprint—not the
-  credential itself.
+- emits only the rule, file, line, and a location-derived occurrence ID—not
+  the credential itself or a value-derived hash that could enable guessing.
 
 This replaces password guessing with a defensible exposure audit. It does not
 attempt logins, crack hashes, test passwords against remote services, or collect
@@ -154,10 +169,10 @@ Verify repository supply-chain boundaries:
 python scripts/verify_supply_chain.py
 ```
 
-The verifier fails on non-SHA-pinned third-party GitHub Actions, unpinned Python
-requirements, missing Node lockfiles, and floating `latest` container bases. A
-versioned container base without a digest is reported as a warning so the
-remaining provenance gap is visible rather than hidden.
+The verifier fails on non-SHA-pinned third-party GitHub Actions, non-exact
+Python requirements, missing or malformed Node lockfiles, and every container
+base that lacks an exact lowercase SHA-256 digest. The shipped KEY-9 and
+Sentinel images are pinned to reviewed multi-platform OCI-index digests.
 
 ## Restricted API
 
@@ -212,10 +227,14 @@ to durable storage with cross-instance locking.
 
 The deterministic JavaScript audit core can prepare corrections for valid
 deposit-allocation mismatches. A plan is bound to the exact source ledger and
-its proposed changes with SHA-256 digests. Application requires an exact plan
-digest, an `APPROVE` decision, and a named human approver. The result is a
-corrected in-memory copy plus a receipt; Watch-Dawg never writes to a bank,
-accounting system, or external financial record.
+its proposed changes with SHA-256 digests. Before application, Watch-Dawg
+recomputes the plan from the source ledger, accepts only finite `vault` and
+`spend` corrections, and requires an exact plan digest, an `APPROVE` decision,
+a named human approver, and a caller-supplied trusted approval verifier. It
+fails closed when that verifier is absent or rejects the approval, and validates
+approval timestamps and expirations when supplied. The result is a corrected
+in-memory copy plus a receipt; Watch-Dawg never writes to a bank, accounting
+system, or external financial record.
 
 Unknown transaction types and invalid financial fields remain in the manual
 review queue.

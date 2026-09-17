@@ -17,8 +17,8 @@ The product principle is simple: **work happens in the field, Watch-Dawg watches
   or credential attempts.
 - Redacted local secret-exposure checks that never return matched credential
   values.
-- SHA-256-bound financial correction proposals that require exact human
-  approval and produce no external write.
+- SHA-256-bound financial correction proposals that recompute allowed changes,
+  require a trusted approval verifier, and produce no external write.
 - A government evaluator evidence bundle with source hashes, SPDX SBOM, test
   commands, and a candid control-gap crosswalk.
 - Authorized, manifest-only AI-system risk review for immutable model revisions,
@@ -26,8 +26,8 @@ The product principle is simple: **work happens in the field, Watch-Dawg watches
   output validation, brokered secrets, recovery objectives, and cryptographic
   migration ownership. It never invokes the reviewed model.
 - A CI supply-chain gate that requires full commit-SHA pins for GitHub Actions,
-  exact Python dependency versions, and Node lockfiles, while reporting
-  container bases that still need digest pins.
+  exact Python dependency versions, Node lockfiles, and reviewed OCI-index
+  digests for both Python container bases.
 
 ## Contractor direction
 
@@ -124,6 +124,7 @@ Set backend variables:
 export MONGO_URL='YOUR_MONGODB_URL'
 export DB_NAME='watchdawg'
 export EMERGENT_LLM_KEY='YOUR_KEY'
+export WATCH_DAWG_AI_API_TOKEN='GENERATE_A_RANDOM_32_PLUS_CHARACTER_SECRET'
 ```
 
 Set frontend variables:
@@ -132,9 +133,66 @@ Set frontend variables:
 export HOST='0.0.0.0'
 export PORT='3000'
 export REACT_APP_BACKEND_URL='http://localhost:8001'
+export WATCH_DAWG_AI_API_TOKEN='THE_SAME_SERVER_SIDE_SECRET'
 ```
 
-Never commit `.env` files, API keys, credentials, or service-account secrets.
+The frontend requires an individual operator session before it sends a paid audit
+to the backend. The shared bearer credential is now only a service-to-service
+secret: browser bearer headers are not accepted as operator authentication.
+The deterministic demo remains usable without signing in.
+
+Create an operator account outside the repository (the command prompts privately
+for a unique passphrase and writes a 0600 file; it will not overwrite a file):
+
+```bash
+mkdir -p ~/.config/watch-dawg
+python frontend/create_operator.py --username robert --output ~/.config/watch-dawg/operators.json
+export WATCH_DAWG_USERS_FILE=~/.config/watch-dawg/operators.json
+export WATCH_DAWG_PUBLIC_ORIGIN='http://localhost:3000'
+export HOST='127.0.0.1'
+```
+
+For a private HTTPS deployment, set `WATCH_DAWG_PUBLIC_ORIGIN` to the exact HTTPS
+origin without a trailing slash. Serve through a managed TLS reverse proxy; HTTP
+is allowed only with a loopback origin and loopback bind address for development.
+Backend traffic must use HTTPS or loopback HTTP. Open `/login.html`, sign in, then
+return to the audit. The Operator account link also provides sign-out.
+
+Accounts use unique salts and scrypt (N=131072, r=8, p=1). Session cookies are
+HttpOnly, SameSite=Strict, Secure over HTTPS, and expire after 15 minutes. A new
+login revokes the previous session for that account; logout revokes it immediately.
+Login and paid audit writes require the configured Origin. Each operator is
+limited to five paid requests per minute, within the backend's shared ceiling.
+Password verification concurrency is bounded to limit memory use.
+
+This is a private **single-process operator pilot**, with up to 20 configured
+accounts. It provides no public registration, password-reset email, MFA or SSO.
+Sessions and throttles are process-local: restart signs everyone out. To revoke
+an operator or rotate a password, replace the protected configuration and restart
+all frontend instances. Do not use multiple instances without shared session and
+rate-limit storage. Before a government/public deployment, integrate the required
+identity provider and MFA; this pilot does not establish certification.
+
+Keep operator files, passwords, and service credentials out of git, browser
+storage, logs, and the public web root. The frontend rejects operator-file
+symlinks, files owned by another account, and group/world-accessible files.
+Never give a browser the backend token. The sign-in surface uses an external
+stylesheet so its Content Security Policy does not permit inline styles.
+Both servers reject API bodies above 64,000 bytes before forwarding or parsing;
+sign-in bodies are limited to 4,096 bytes, including chunked bodies. The
+frontend also bounds header receipt, request receipt, keep-alive reuse, header
+count, requests per socket, and upstream idle time so stalled connections do
+not remain open indefinitely.
+
+Security references: [OWASP password storage](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
+and [session management](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html).
+
+Run the offline security checks (no account, database or paid model required):
+
+```bash
+node --test frontend/tests/*.test.mjs
+python -m unittest backend.tests.test_request_boundary -v
+```
 
 Start the backend:
 

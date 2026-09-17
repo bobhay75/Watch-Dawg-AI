@@ -20,13 +20,16 @@ load_dotenv(ROOT_DIR / "frontend" / ".env")
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL")
 MONGO_URL = os.environ.get("MONGO_URL")
 DB_NAME = os.environ.get("DB_NAME")
+AI_API_TOKEN = os.environ.get("WATCH_DAWG_AI_API_TOKEN")
 SseEvent = dict[str, Any]
 
 
 @pytest.fixture(scope="session")
 def api_base_url() -> str:
-    if not BASE_URL:
-        pytest.skip("REACT_APP_BACKEND_URL is not set")
+    if not BASE_URL or not AI_API_TOKEN:
+        pytest.skip(
+            "REACT_APP_BACKEND_URL or WATCH_DAWG_AI_API_TOKEN is not set"
+        )
     return BASE_URL.rstrip("/")
 
 
@@ -93,6 +96,7 @@ def post_ai_audit(
     return requests.post(
         f"{api_base_url}/api/ai/audit",
         json=payload,
+        headers={"Authorization": f"Bearer {AI_API_TOKEN}"},
         stream=True,
         timeout=120,
     )

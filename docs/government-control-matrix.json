@@ -36,7 +36,7 @@
       "capability": "Software supply-chain reproducibility gate",
       "candidate_nist_800_53_families": ["CM", "SA", "SI"],
       "candidate_nist_csf_functions": ["GOVERN", "IDENTIFY", "PROTECT"],
-      "status": "partial-container-digest-gap",
+      "status": "implemented-with-reviewed-container-digests",
       "evidence": ["scripts/verify_supply_chain.py", ".github/workflows/government-evidence.yml", "sentinel/tests/test_authorized_controls.py"]
     },
     {

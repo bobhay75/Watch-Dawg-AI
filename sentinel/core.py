@@ -142,6 +142,8 @@ class SentinelEngine:
         output = {
             "generated_at": utc_now_iso(),
             "notify": any(result["new_alerts"] or result["resolved"] for result in results),
+            "complete": all(result["complete"] for result in results),
+            "healthy": not any(result["unhealthy"] for result in results),
             "targets_checked": len(results),
             "new_alert_count": sum(len(result["new_alerts"]) for result in results),
             "resolved_count": sum(len(result["resolved"]) for result in results),
@@ -171,8 +173,10 @@ class SentinelEngine:
             for key, value in target_state.get("active_findings", {}).items()
         }
 
+        complete = True
         denial = self._authorization_denial(target, pack)
         if denial:
+            complete = False
             current = Observation(
                 target_id=target_id,
                 kind=kind,
@@ -185,6 +189,7 @@ class SentinelEngine:
                 current = pack.observe(target)
                 findings = pack.evaluate(target, current, previous)
             except Exception as exc:  # A pack failure becomes review evidence.
+                complete = False
                 current = Observation(
                     target_id=target_id,
                     kind=kind,
@@ -205,18 +210,22 @@ class SentinelEngine:
                     )
                 ]
 
-        active = {
+        observed_active = {
             finding.fingerprint: finding
             for finding in findings
             if finding.stateful
         }
+        # An incomplete observation cannot prove that an earlier condition was
+        # resolved. Preserve prior active findings until a complete run can
+        # positively replace them.
+        active = observed_active if complete else {**prior_active, **observed_active}
         events = [finding for finding in findings if not finding.stateful]
         new_alerts = [
             finding.to_dict()
-            for fingerprint, finding in active.items()
+            for fingerprint, finding in observed_active.items()
             if fingerprint not in prior_active
         ] + [finding.to_dict() for finding in events]
-        resolved = [
+        resolved = [] if not complete else [
             {
                 **finding.to_dict(),
                 "resolved_at": current.observed_at,
@@ -241,6 +250,8 @@ class SentinelEngine:
             "target_id": target_id,
             "kind": kind,
             "observed_at": current.observed_at,
+            "complete": complete,
+            "unhealthy": not complete or self._verdict(active.values()) == "REVIEW",
             "verdict": verdict,
             "dawg_score": score,
             "evidence_sources": list(current.evidence),

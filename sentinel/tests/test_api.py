@@ -144,6 +144,36 @@ class SentinelApiTests(unittest.TestCase):
         self.assertEqual(self.calls[0][0], self.config)
         self.assertEqual(self.calls[0][1], self.root / "state" / "approved.json")
 
+    def test_incomplete_profile_run_is_not_reported_as_http_success(self) -> None:
+        def incomplete_runner(config_path: Path, state_path: Path) -> dict:
+            return {
+                "complete": False,
+                "healthy": False,
+                "notify": True,
+                "targets_checked": 1,
+                "new_alert_count": 1,
+                "resolved_count": 0,
+                "results": [{"verdict": "REVIEW", "complete": False}],
+                "discernment": {"quiet_is_healthy": False},
+            }
+
+        service = SentinelApiService(
+            token=TOKEN,
+            profiles={"approved": self.config},
+            state_root=self.root / "state-incomplete",
+            rate_limiter=ProfileRateLimiter(cooldown_seconds=0),
+            runner=incomplete_runner,
+        )
+        with ApiHarness(service) as api:
+            status, body, _ = api.request(
+                "POST",
+                "/v1/run",
+                payload={"profile": "approved"},
+                token=TOKEN,
+            )
+        self.assertEqual(status, 424)
+        self.assertFalse(body["result"]["complete"])
+
     def test_caller_supplied_targets_and_urls_are_rejected(self) -> None:
         with ApiHarness(self.service) as api:
             status, body, _ = api.request(

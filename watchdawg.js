@@ -1,4 +1,34 @@
 const TOLERANCE = 0.009;
+const FORBIDDEN_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const PLAN_KEYS = [
+  'version',
+  'createdAt',
+  'sourceDigest',
+  'proposals',
+  'unhandledReviews',
+  'requiresHumanApproval',
+  'externalWritePerformed',
+  'planDigest'
+];
+const PROPOSAL_KEYS = [
+  'proposalId',
+  'transactionIndex',
+  'transactionId',
+  'reason',
+  'before',
+  'changes'
+];
+const APPROVAL_KEYS = [
+  'decision',
+  'approver',
+  'planDigest',
+  'approvedAt',
+  'expiresAt',
+  'keyId',
+  'signature'
+];
+const CORRECTABLE_FIELDS = new Set(['vault', 'spend']);
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 const round = (value) => Math.round(Number(value) * 100) / 100;
 
@@ -9,6 +39,101 @@ const finite = (value) => {
 };
 
 const isObject = (value) => value && typeof value === 'object' && !Array.isArray(value);
+
+const isPlainObject = (value) => {
+  if (!isObject(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+};
+
+const assertSafeJsonValue = (value, label = 'value', seen = new Set()) => {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new TypeError(`${label} contains a non-finite number`);
+    return;
+  }
+  if (typeof value !== 'object') throw new TypeError(`${label} must contain only JSON values`);
+  if (seen.has(value)) throw new TypeError(`${label} must not contain circular references`);
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    const elementKeys = Reflect.ownKeys(value).filter((key) => key !== 'length');
+    if (elementKeys.length !== value.length) {
+      throw new TypeError(`${label} must not be sparse or contain extra fields`);
+    }
+    for (const key of elementKeys) {
+      if (typeof key !== 'string' || !/^(0|[1-9]\d*)$/.test(key) || Number(key) >= value.length) {
+        throw new TypeError(`${label} must not contain extra fields`);
+      }
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor?.enumerable || descriptor.get || descriptor.set) {
+        throw new TypeError(`${label}[${key}] must be an enumerable data property`);
+      }
+      assertSafeJsonValue(descriptor.value, `${label}[${key}]`, seen);
+    }
+  } else {
+    if (!isPlainObject(value)) throw new TypeError(`${label} must be a plain object`);
+    for (const key of Reflect.ownKeys(value)) {
+      if (typeof key !== 'string' || FORBIDDEN_OBJECT_KEYS.has(key)) {
+        throw new TypeError(`${label} contains a forbidden object key`);
+      }
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor?.enumerable || descriptor.get || descriptor.set) {
+        throw new TypeError(`${label}.${key} must be an enumerable data property`);
+      }
+      assertSafeJsonValue(descriptor.value, `${label}.${key}`, seen);
+    }
+  }
+  seen.delete(value);
+};
+
+const assertExactObjectKeys = (value, allowed, required, label) => {
+  if (!isPlainObject(value)) throw new TypeError(`${label} must be a plain object`);
+  const keys = Reflect.ownKeys(value);
+  const allowedSet = new Set(allowed);
+  for (const key of keys) {
+    if (typeof key !== 'string' || FORBIDDEN_OBJECT_KEYS.has(key) || !allowedSet.has(key)) {
+      throw new TypeError(`${label} contains an unknown or forbidden field`);
+    }
+  }
+  for (const key of required) {
+    if (!Object.prototype.hasOwnProperty.call(value, key)) {
+      throw new TypeError(`${label} is missing required field ${key}`);
+    }
+  }
+};
+
+const parseTimestamp = (value, label) => {
+  if (typeof value !== 'string' || !ISO_TIMESTAMP.test(value)) {
+    throw new TypeError(`${label} must be a canonical ISO-8601 UTC timestamp`);
+  }
+  const milliseconds = Date.parse(value);
+  if (!Number.isFinite(milliseconds) || new Date(milliseconds).toISOString() !== value) {
+    throw new TypeError(`${label} must be a valid timestamp`);
+  }
+  return milliseconds;
+};
+
+const currentTime = (value) => {
+  if (value == null) {
+    const milliseconds = Date.now();
+    return { milliseconds, iso: new Date(milliseconds).toISOString() };
+  }
+  if (typeof value === 'string') {
+    const milliseconds = parseTimestamp(value, 'options.now');
+    return { milliseconds, iso: value };
+  }
+  if (value instanceof Date && Number.isFinite(value.getTime())) {
+    return { milliseconds: value.getTime(), iso: value.toISOString() };
+  }
+  throw new TypeError('options.now must be a valid Date or canonical ISO-8601 UTC timestamp');
+};
+
+const isDigest = (value) => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+
+const isTransactionId = (value) => value === null
+  || typeof value === 'string'
+  || (typeof value === 'number' && Number.isFinite(value));
 
 const canonicalize = (value) => {
   if (Array.isArray(value)) return value.map(canonicalize);
@@ -242,6 +367,15 @@ export async function createCorrectionPlan(payload, options = {}) {
   if (!isObject(payload) || !Array.isArray(payload.transactions)) {
     throw new TypeError('Correction planning requires a ledger object with transactions');
   }
+  assertSafeJsonValue(payload, 'ledger');
+  payload.transactions.forEach((tx, index) => {
+    if (!isPlainObject(tx)) {
+      throw new TypeError(`ledger.transactions[${index}] must be a plain object`);
+    }
+    if (Object.prototype.hasOwnProperty.call(tx, 'id') && tx.id != null && !isTransactionId(tx.id)) {
+      throw new TypeError(`ledger.transactions[${index}].id must be a string, finite number, or null`);
+    }
+  });
   const source = copyJson(payload);
   const proposals = [];
   const unhandledReviews = [];
@@ -276,16 +410,18 @@ export async function createCorrectionPlan(payload, options = {}) {
     proposals.push({
       proposalId: `TX-${String(index + 1).padStart(4, '0')}`,
       transactionIndex: index,
-      transactionId: tx.id || null,
+      transactionId: tx.id ?? null,
       reason: 'Deterministic deposit allocation mismatch',
       before: Object.fromEntries(Object.keys(changes).map((key) => [key, round(tx[key])])),
       changes,
     });
   });
 
+  const createdAt = options.createdAt || new Date().toISOString();
+  parseTimestamp(createdAt, 'plan.createdAt');
   const plan = {
     version: 1,
-    createdAt: options.createdAt || new Date().toISOString(),
+    createdAt,
     sourceDigest: await digest(source),
     proposals,
     unhandledReviews,
@@ -295,17 +431,147 @@ export async function createCorrectionPlan(payload, options = {}) {
   return { ...plan, planDigest: await digest(plan) };
 }
 
-export async function applyApprovedCorrectionPlan(payload, plan, approval) {
-  if (!isObject(plan) || plan.version !== 1 || !Array.isArray(plan.proposals)) {
-    throw new TypeError('Unsupported correction plan');
+const validateCorrectionPlan = (plan, transactionCount) => {
+  assertSafeJsonValue(plan, 'correction plan');
+  assertExactObjectKeys(plan, PLAN_KEYS, PLAN_KEYS, 'correction plan');
+  if (plan.version !== 1
+    || !Array.isArray(plan.proposals)
+    || !Array.isArray(plan.unhandledReviews)
+    || plan.requiresHumanApproval !== true
+    || plan.externalWritePerformed !== false
+    || !isDigest(plan.sourceDigest)
+    || !isDigest(plan.planDigest)) {
+    throw new TypeError('Unsupported or malformed correction plan');
   }
-  if (!isObject(approval)
-    || approval.decision !== 'APPROVE'
-    || !String(approval.approver || '').trim()
+  parseTimestamp(plan.createdAt, 'plan.createdAt');
+
+  const proposalIds = new Set();
+  const transactionIndexes = new Set();
+  for (const [proposalIndex, proposal] of plan.proposals.entries()) {
+    const label = `correction plan proposal ${proposalIndex}`;
+    assertExactObjectKeys(proposal, PROPOSAL_KEYS, PROPOSAL_KEYS, label);
+    if (typeof proposal.proposalId !== 'string' || !/^TX-\d{4,}$/.test(proposal.proposalId)) {
+      throw new TypeError(`${label} has an invalid proposalId`);
+    }
+    if (proposalIds.has(proposal.proposalId)) {
+      throw new TypeError('Correction plan contains duplicate proposal IDs');
+    }
+    proposalIds.add(proposal.proposalId);
+
+    if (!Number.isInteger(proposal.transactionIndex)
+      || proposal.transactionIndex < 0
+      || proposal.transactionIndex >= transactionCount) {
+      throw new TypeError(`${label} has an invalid transaction index`);
+    }
+    if (transactionIndexes.has(proposal.transactionIndex)) {
+      throw new TypeError('Correction plan contains duplicate transaction proposals');
+    }
+    transactionIndexes.add(proposal.transactionIndex);
+
+    if (!isTransactionId(proposal.transactionId)
+      || proposal.reason !== 'Deterministic deposit allocation mismatch') {
+      throw new TypeError(`${label} has invalid identity or reason fields`);
+    }
+
+    if (!isPlainObject(proposal.before) || !isPlainObject(proposal.changes)) {
+      throw new TypeError(`${label} before and changes must be plain objects`);
+    }
+    const beforeKeys = Reflect.ownKeys(proposal.before);
+    const changeKeys = Reflect.ownKeys(proposal.changes);
+    if (!changeKeys.length
+      || beforeKeys.length !== changeKeys.length
+      || changeKeys.some((key) => typeof key !== 'string' || !CORRECTABLE_FIELDS.has(key))
+      || beforeKeys.some((key) => typeof key !== 'string' || !CORRECTABLE_FIELDS.has(key))
+      || changeKeys.some((key) => !beforeKeys.includes(key))) {
+      throw new TypeError(`${label} may change only matching vault and spend fields`);
+    }
+    for (const field of changeKeys) {
+      if (typeof proposal.before[field] !== 'number' || !Number.isFinite(proposal.before[field])) {
+        throw new TypeError(`${label}.before.${field} must be a finite number`);
+      }
+      if (typeof proposal.changes[field] !== 'number'
+        || !Number.isFinite(proposal.changes[field])
+        || proposal.changes[field] < 0) {
+        throw new TypeError(`${label}.changes.${field} must be a non-negative finite number`);
+      }
+    }
+  }
+
+  const unhandledIndexes = new Set();
+  for (const [reviewIndex, review] of plan.unhandledReviews.entries()) {
+    const label = `correction plan unhandled review ${reviewIndex}`;
+    assertExactObjectKeys(review, ['index', 'id', 'reason'], ['index', 'id', 'reason'], label);
+    if (!Number.isInteger(review.index)
+      || review.index < 0
+      || review.index >= transactionCount
+      || !isTransactionId(review.id)
+      || typeof review.reason !== 'string'
+      || !review.reason.trim()) {
+      throw new TypeError(`${label} is malformed`);
+    }
+    if (unhandledIndexes.has(review.index)) {
+      throw new TypeError('Correction plan contains duplicate unhandled reviews');
+    }
+    unhandledIndexes.add(review.index);
+  }
+};
+
+const validateApproval = (approval, plan, nowMilliseconds) => {
+  assertSafeJsonValue(approval, 'approval');
+  assertExactObjectKeys(
+    approval,
+    APPROVAL_KEYS,
+    ['decision', 'approver', 'planDigest'],
+    'approval'
+  );
+  if (approval.decision !== 'APPROVE'
+    || typeof approval.approver !== 'string'
+    || !approval.approver.trim()
     || approval.planDigest !== plan.planDigest) {
     throw new Error('Exact human approval for this correction plan is required');
   }
-  if (await digest(payload) !== plan.sourceDigest) {
+  for (const field of ['keyId', 'signature']) {
+    if (Object.prototype.hasOwnProperty.call(approval, field)
+      && (typeof approval[field] !== 'string' || !approval[field].trim())) {
+      throw new TypeError(`approval.${field} must be a non-empty string`);
+    }
+  }
+
+  const planCreatedAt = parseTimestamp(plan.createdAt, 'plan.createdAt');
+  if (planCreatedAt > nowMilliseconds) throw new Error('Correction plan timestamp is in the future');
+  let approvedAt = null;
+  if (Object.prototype.hasOwnProperty.call(approval, 'approvedAt')) {
+    approvedAt = parseTimestamp(approval.approvedAt, 'approval.approvedAt');
+    if (approvedAt < planCreatedAt) {
+      throw new Error('Approval timestamp predates the correction plan');
+    }
+    if (approvedAt > nowMilliseconds) {
+      throw new Error('Approval timestamp is in the future');
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(approval, 'expiresAt')) {
+    const expiresAt = parseTimestamp(approval.expiresAt, 'approval.expiresAt');
+    if (expiresAt <= (approvedAt ?? planCreatedAt)) {
+      throw new Error('Approval expiry must follow the approval and plan timestamps');
+    }
+    if (expiresAt <= nowMilliseconds) throw new Error('Approval has expired');
+  }
+};
+
+export async function applyApprovedCorrectionPlan(payload, plan, approval, options = {}) {
+  if (!isObject(options) || typeof options.verifyApproval !== 'function') {
+    throw new Error('A trusted approval verifier is required');
+  }
+  if (!isObject(payload) || !Array.isArray(payload.transactions)) {
+    throw new TypeError('Correction application requires a ledger object with transactions');
+  }
+  assertSafeJsonValue(payload, 'ledger');
+  validateCorrectionPlan(plan, payload.transactions.length);
+  const now = currentTime(options.now);
+  validateApproval(approval, plan, now.milliseconds);
+
+  const source = copyJson(payload);
+  if (await digest(source) !== plan.sourceDigest) {
     throw new Error('Ledger changed after the correction plan was created');
   }
   const unsignedPlan = { ...plan };
@@ -314,8 +580,24 @@ export async function applyApprovedCorrectionPlan(payload, plan, approval) {
     throw new Error('Correction plan integrity check failed');
   }
 
-  const corrected = copyJson(payload);
-  for (const proposal of plan.proposals) {
+  const expectedPlan = await createCorrectionPlan(source, { createdAt: plan.createdAt });
+  if (JSON.stringify(canonicalize(expectedPlan)) !== JSON.stringify(canonicalize(plan))) {
+    throw new Error('Correction plan does not match the deterministic ledger corrections');
+  }
+
+  let approvalVerified = false;
+  try {
+    approvalVerified = await options.verifyApproval({
+      approval: copyJson(approval),
+      plan: copyJson(plan)
+    });
+  } catch {
+    throw new Error('Trusted approval verification failed');
+  }
+  if (approvalVerified !== true) throw new Error('Trusted approval verification failed');
+
+  const corrected = copyJson(source);
+  for (const proposal of expectedPlan.proposals) {
     const tx = corrected.transactions[proposal.transactionIndex];
     if (!tx || (proposal.transactionId != null && tx.id !== proposal.transactionId)) {
       throw new Error('Correction proposal no longer matches its transaction');
@@ -328,8 +610,8 @@ export async function applyApprovedCorrectionPlan(payload, plan, approval) {
     resultDigest: await digest(corrected),
     decision: 'APPROVE',
     approver: String(approval.approver).trim(),
-    approvedAt: approval.approvedAt || new Date().toISOString(),
-    appliedProposalIds: plan.proposals.map((item) => item.proposalId),
+    approvedAt: approval.approvedAt || now.iso,
+    appliedProposalIds: expectedPlan.proposals.map((item) => item.proposalId),
     externalWritePerformed: false,
   };
   return { corrected, receipt };

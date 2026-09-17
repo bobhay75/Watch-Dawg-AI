@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Operator sign-in | Watch-Dawg</title>
+<link rel="stylesheet" href="/login.css">
+<script src="/login.js" defer></script>
+</head>
+<body><main>
+<a href="/">← Return to Watch-Dawg</a><h1>Operator sign-in</h1>
+<p>Sign in with your individual operator account to use paid AI analysis. Sessions expire after 15 minutes.</p>
+<noscript><p>JavaScript is required for private operator sign-in. The deterministic demo remains available.</p></noscript>
+<form id="login" method="post" action="/auth/login">
+<label for="username">Username</label><input id="username" name="username" autocomplete="username" required maxlength="40" pattern="[a-z0-9_-]{3,40}">
+<label for="password">Passphrase</label><input id="password" name="password" type="password" autocomplete="current-password" required minlength="15" maxlength="256">
+<button id="submit" type="submit">Sign in</button>
+</form>
+<p id="status" role="status" aria-live="polite"></p>
+<button id="logout" type="button" hidden>Sign out</button>
+<p>Watch-Dawg keeps service credentials on the server and uses a short-lived session cookie.</p>
+</main></body></html>

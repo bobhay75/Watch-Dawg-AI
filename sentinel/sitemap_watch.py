@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import time
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 from xml.etree import ElementTree
@@ -10,8 +11,13 @@ from .http_watch import (
     MAX_BODY_BYTES,
     SafeHttpFetcher,
     sanitize_http_url_for_evidence,
-    validate_public_http_url,
+    validate_http_url_syntax,
 )
+
+
+MAX_SITEMAPS = 3
+MAX_URLS = 25
+MAX_RUN_SECONDS = 120.0
 
 
 class SitemapFetcher(Protocol):
@@ -52,30 +58,44 @@ class SitemapWatchPack:
     def observe(self, target: dict[str, Any]) -> Observation:
         target_id = str(target["id"])
         sitemap_url = str(target["url"])
-        validate_public_http_url(sitemap_url)
-        timeout = min(max(float(target.get("timeout_seconds", 10)), 1), 30)
-        max_urls = min(max(int(target.get("max_urls", 25)), 1), 100)
-        max_sitemaps = min(max(int(target.get("max_sitemaps", 5)), 1), 10)
+        safe_sitemap_url = sanitize_http_url_for_evidence(sitemap_url)
+        validate_http_url_syntax(sitemap_url)
+        timeout = min(max(float(target.get("timeout_seconds", 10)), 1), 15)
+        run_timeout = min(
+            max(float(target.get("run_timeout_seconds", 60)), 1),
+            MAX_RUN_SECONDS,
+        )
+        deadline = time.monotonic() + run_timeout
+        max_urls = min(max(int(target.get("max_urls", 25)), 1), MAX_URLS)
+        max_sitemaps = min(max(int(target.get("max_sitemaps", 3)), 1), MAX_SITEMAPS)
         max_xml_bytes = min(
             max(int(target.get("max_xml_bytes", 500_000)), 1_000),
             MAX_BODY_BYTES,
         )
 
-        root_response = self.fetcher.fetch(sitemap_url, timeout, max_xml_bytes)
+        def bounded_fetch(url: str, max_body_bytes: int) -> dict[str, Any]:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("sitemap run deadline exceeded")
+            return self.fetcher.fetch(url, min(timeout, remaining), max_body_bytes)
+
+        root_response = bounded_fetch(sitemap_url, max_xml_bytes)
         root_body = str(root_response.pop("body"))
         root_type, root_locations = _locations(root_body)
         page_urls: list[str] = []
         child_maps_checked = 0
-        sitemap_statuses = {sitemap_url: int(root_response["status"])}
+        sitemap_statuses = {safe_sitemap_url: int(root_response["status"])}
 
         if root_type == "sitemapindex":
             for child_url in root_locations[:max_sitemaps]:
                 if not _same_origin(sitemap_url, child_url):
                     continue
-                validate_public_http_url(child_url)
-                child = self.fetcher.fetch(child_url, timeout, max_xml_bytes)
+                validate_http_url_syntax(child_url)
+                child = bounded_fetch(child_url, max_xml_bytes)
                 child_body = str(child.pop("body"))
-                sitemap_statuses[child_url] = int(child["status"])
+                sitemap_statuses[
+                    sanitize_http_url_for_evidence(child_url)
+                ] = int(child["status"])
                 child_type, child_locations = _locations(child_body)
                 child_maps_checked += 1
                 if child_type == "urlset":
@@ -97,7 +117,7 @@ class SitemapWatchPack:
             if not _same_origin(sitemap_url, page_url):
                 skipped_cross_origin.append(sanitize_http_url_for_evidence(page_url))
                 continue
-            validate_public_http_url(page_url)
+            validate_http_url_syntax(page_url)
             normalized_urls.append(page_url)
             if len(normalized_urls) >= max_urls:
                 break
@@ -105,36 +125,39 @@ class SitemapWatchPack:
         statuses = {}
         final_urls = {}
         for page_url in normalized_urls:
-            response = self.fetcher.fetch(page_url, timeout, 1_000)
-            statuses[page_url] = int(response["status"])
-            final_urls[page_url] = sanitize_http_url_for_evidence(
+            response = bounded_fetch(page_url, 1_000)
+            safe_page_url = sanitize_http_url_for_evidence(page_url)
+            statuses[safe_page_url] = int(response["status"])
+            final_urls[safe_page_url] = sanitize_http_url_for_evidence(
                 response.get("final_url", page_url),
-                fallback=page_url,
+                fallback=safe_page_url,
             )
 
+        safe_urls = [sanitize_http_url_for_evidence(url) for url in normalized_urls]
         url_set_hash = hashlib.sha256(
-            "\0".join(sorted(normalized_urls)).encode("utf-8")
+            "\0".join(sorted(safe_urls)).encode("utf-8")
         ).hexdigest()
         facts = {
-            "sitemap_url": sitemap_url,
+            "sitemap_url": safe_sitemap_url,
             "sitemap_root_type": root_type,
             "sitemap_statuses": sitemap_statuses,
             "child_sitemaps_checked": child_maps_checked,
             "urls_checked": len(normalized_urls),
-            "urls": normalized_urls,
+            "urls": safe_urls,
             "url_set_sha256": url_set_hash,
             "statuses": statuses,
             "final_urls": final_urls,
             "skipped_cross_origin": skipped_cross_origin[:10],
             "request_budget": 1 + max_sitemaps + max_urls,
             "requests_made": 1 + child_maps_checked + len(normalized_urls),
+            "run_deadline_seconds": run_timeout,
         }
         return Observation(
             target_id=target_id,
             kind=self.kind,
             ok=True,
             facts=facts,
-            evidence=[sitemap_url],
+            evidence=[safe_sitemap_url],
         )
 
     def evaluate(self, target, current, previous):

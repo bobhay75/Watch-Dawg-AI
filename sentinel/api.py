@@ -257,7 +257,13 @@ def build_handler(service: SentinelApiService) -> type[BaseHTTPRequestHandler]:
                         "invalid_profile",
                         "The profile field must be a string.",
                     )
-                self._send_json(HTTPStatus.OK, service.run(profile))
+                response = service.run(profile)
+                status = (
+                    HTTPStatus.OK
+                    if response["result"].get("complete", True)
+                    else HTTPStatus.FAILED_DEPENDENCY
+                )
+                self._send_json(status, response)
             except ApiError as exc:
                 self._send_error(exc)
             except Exception:
