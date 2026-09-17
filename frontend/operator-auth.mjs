@@ -1,6 +1,6 @@
 import { randomBytes, scrypt, timingSafeEqual, createHash } from 'node:crypto';
 import { promisify } from 'node:util';
-import { readFileSync, statSync } from 'node:fs';
+import { closeSync, constants as fsConstants, fstatSync, lstatSync, openSync, readFileSync } from 'node:fs';
 
 const derive = promisify(scrypt);
 export const scryptOptions = { N: 131072, r: 8, p: 1, maxmem: 256 * 1024 * 1024 };
@@ -9,11 +9,21 @@ const lifetime = 15 * 60 * 1000;
 
 export function loadOperators(path) {
   if (!path) return [];
-  const stat = statSync(path);
-  if (!stat.isFile() || stat.size > 32000 || (stat.mode & 0o077)) {
-    throw new Error('Operator file must be private (0600) and at most 32 KB');
+  const before = lstatSync(path);
+  if (before.isSymbolicLink()) throw new Error('Operator file cannot be a symbolic link');
+  const fd = openSync(path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW || 0));
+  try {
+    const stat = fstatSync(fd);
+    const currentUid = typeof process.getuid === 'function' ? process.getuid() : null;
+    if (!stat.isFile() || stat.dev !== before.dev || stat.ino !== before.ino
+        || stat.size > 32000 || (stat.mode & 0o077)
+        || (currentUid !== null && stat.uid !== currentUid)) {
+      throw new Error('Operator file must be unchanged, owned by this process user, private, regular, and at most 32 KB');
+    }
+    return JSON.parse(readFileSync(fd, 'utf8'));
+  } finally {
+    closeSync(fd);
   }
-  return JSON.parse(readFileSync(path, 'utf8'));
 }
 
 export class OperatorAuth {
@@ -55,7 +65,8 @@ export class OperatorAuth {
   }
 
   cookie(id, clear = false) {
-    return `${this.cookieName}=${id}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${clear ? 0 : lifetime / 1000}${this.secure ? '; Secure' : ''}`;
+    const expires = clear ? '; Expires=Thu, 01 Jan 1970 00:00:00 GMT' : '';
+    return `${this.cookieName}=${id}; Path=/; HttpOnly; SameSite=Strict; Priority=High; Max-Age=${clear ? 0 : lifetime / 1000}${expires}${this.secure ? '; Secure' : ''}`;
   }
 
   session(req) {
@@ -85,8 +96,16 @@ export class OperatorAuth {
     this.loginAttempts = this.loginAttempts.filter(t => t > now - 60000);
     const known = this.users.get(username);
     const attempts = (this.userAttempts.get(username) || []).filter(t => t > now - 900000);
-    if (this.hashing || this.loginAttempts.length >= 10 || attempts.length >= 5) {
-      return { status: 429, detail: 'Too many sign-in attempts; try again later' };
+    if (this.hashing) {
+      return { status: 429, detail: 'Another sign-in is being verified', retryAfter: 1 };
+    }
+    if (this.loginAttempts.length >= 10) {
+      const retryAfter = Math.max(1, Math.ceil((this.loginAttempts[0] + 60000 - now) / 1000));
+      return { status: 429, detail: 'Too many sign-in attempts; try again later', retryAfter };
+    }
+    if (attempts.length >= 5) {
+      const retryAfter = Math.max(1, Math.ceil((attempts[0] + 900000 - now) / 1000));
+      return { status: 429, detail: 'Too many sign-in attempts; try again later', retryAfter };
     }
     this.loginAttempts.push(now);
     // Store counters only for configured users so unknown names cannot fill memory.
@@ -117,7 +136,10 @@ export class OperatorAuth {
     }
     const now = this.now();
     const attempts = (this.auditAttempts.get(session.username) || []).filter(t => t > now - 60000);
-    if (attempts.length >= 5) return { status: 429, detail: 'Operator audit limit reached' };
+    if (attempts.length >= 5) {
+      const retryAfter = Math.max(1, Math.ceil((attempts[0] + 60000 - now) / 1000));
+      return { status: 429, detail: 'Operator audit limit reached', retryAfter };
+    }
     this.auditAttempts.set(session.username, [...attempts, now]);
     return { status: 200 };
   }
@@ -131,7 +153,15 @@ export class OperatorAuth {
 }
 
 export async function readBoundedBody(req, maximum) {
-  if (Number(req.headers['content-length']) > maximum) {
+  if (!Number.isSafeInteger(maximum) || maximum < 0) throw new TypeError('Invalid body limit');
+  const declared = req.headers['content-length'];
+  if (declared !== undefined
+      && (Array.isArray(declared) || !/^(0|[1-9][0-9]*)$/.test(declared))) {
+    req.resume();
+    throw Object.assign(new Error('Invalid content length'), { status: 400 });
+  }
+  if (declared !== undefined && (declared.length > 6 || Number(declared) > maximum)) {
+    req.resume();
     throw Object.assign(new Error('Request body is too large'), { status: 413 });
   }
   const chunks = [];

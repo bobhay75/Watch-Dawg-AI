@@ -174,9 +174,15 @@ rate-limit storage. Before a government/public deployment, integrate the require
 identity provider and MFA; this pilot does not establish certification.
 
 Keep operator files, passwords, and service credentials out of git, browser
-storage, logs, and the public web root. Never give a browser the backend token.
+storage, logs, and the public web root. The frontend rejects operator-file
+symlinks, files owned by another account, and group/world-accessible files.
+Never give a browser the backend token. The sign-in surface uses an external
+stylesheet so its Content Security Policy does not permit inline styles.
 Both servers reject API bodies above 64,000 bytes before forwarding or parsing;
-sign-in bodies are limited to 4,096 bytes, including chunked bodies.
+sign-in bodies are limited to 4,096 bytes, including chunked bodies. The
+frontend also bounds header receipt, request receipt, keep-alive reuse, header
+count, requests per socket, and upstream idle time so stalled connections do
+not remain open indefinitely.
 
 Security references: [OWASP password storage](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
 and [session management](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html).

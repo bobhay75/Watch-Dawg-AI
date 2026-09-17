@@ -3,19 +3,13 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Operator sign-in | Watch-Dawg</title>
-<style>
-body{margin:0;background:#10151d;color:#edf3ff;font:18px system-ui;line-height:1.5}
-main{max-width:30rem;margin:8vh auto;padding:1.5rem}label{display:block;margin-top:1rem}
-input,button{box-sizing:border-box;width:100%;font:inherit;padding:.8rem;border:1px solid #8899af;border-radius:.4rem}
-button{margin-top:1.25rem;background:#b7ecff;color:#10151d;cursor:pointer}button:disabled{opacity:.6}
-a{color:#b7ecff}input:focus-visible,button:focus-visible,a:focus-visible{outline:3px solid #ffc861;outline-offset:3px}
-#status{min-height:3rem}#logout{background:transparent;color:#edf3ff}[hidden]{display:none}
-</style>
+<link rel="stylesheet" href="/login.css">
 <script src="/login.js" defer></script>
 </head>
 <body><main>
 <a href="/">← Return to Watch-Dawg</a><h1>Operator sign-in</h1>
 <p>Sign in with your individual operator account to use paid AI analysis. Sessions expire after 15 minutes.</p>
+<noscript><p>JavaScript is required for private operator sign-in. The deterministic demo remains available.</p></noscript>
 <form id="login" method="post" action="/auth/login">
 <label for="username">Username</label><input id="username" name="username" autocomplete="username" required maxlength="40" pattern="[a-z0-9_-]{3,40}">
 <label for="password">Passphrase</label><input id="password" name="password" type="password" autocomplete="current-password" required minlength="15" maxlength="256">

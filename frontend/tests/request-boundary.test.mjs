@@ -77,6 +77,10 @@ test('proxy authenticates callers and bounds bodies before any upstream call', a
     const loginPage = await fetch(`${origin}/login.html`);
     assert.equal(loginPage.status, 200);
     assert.match(loginPage.headers.get('content-security-policy'), /frame-ancestors 'none'/);
+    assert.doesNotMatch(loginPage.headers.get('content-security-policy'), /unsafe-inline/);
+    const loginStyles = await fetch(`${origin}/login.css`);
+    assert.equal(loginStyles.status, 200);
+    assert.equal(loginStyles.headers.get('cache-control'), 'no-store');
     const oversizedLogin = await fetch(`${origin}/auth/login`, {method:'POST', headers:{origin}, body:'x'.repeat(4097)});
     assert.equal(oversizedLogin.status, 413);
     const loginResponse = await fetch(`${origin}/auth/login`, {method: 'POST',
@@ -88,6 +92,7 @@ test('proxy authenticates callers and bounds bodies before any upstream call', a
     const cookieHeader = loginResponse.headers.get('set-cookie');
     assert.match(cookieHeader, /HttpOnly/);
     assert.match(cookieHeader, /SameSite=Strict/);
+    assert.match(cookieHeader, /Priority=High/);
     const cookie = cookieHeader.split(';')[0];
     assert.equal(await request('{}', cookie, false, 'https://evil.example'), 403);
     assert.equal(seen.length, 0);

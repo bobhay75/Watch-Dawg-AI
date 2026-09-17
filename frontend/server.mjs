@@ -57,7 +57,7 @@ const operators = new OperatorAuth({ users: loadOperators(process.env.WATCH_DAWG
 function authReply(res, result) {
   const headers = { 'content-type': 'application/json', 'cache-control': 'no-store' };
   if (result.cookie) headers['set-cookie'] = result.cookie;
-  if (result.status === 429) headers['retry-after'] = '60';
+  if (result.status === 429) headers['retry-after'] = String(result.retryAfter || 60);
   res.writeHead(result.status, headers);
   res.end(JSON.stringify({ detail: result.detail }));
 }
@@ -114,8 +114,16 @@ async function proxyApi(req, res) {
     },
   );
   proxy.on('error', () => {
-    res.writeHead(502, { 'content-type': 'application/json' });
+    if (res.headersSent) {
+      if (!res.writableEnded) res.destroy();
+      return;
+    }
+    res.writeHead(502, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     res.end(JSON.stringify({ detail: 'API service unavailable' }));
+  });
+  proxy.setTimeout(60_000, () => proxy.destroy(new Error('Upstream response timed out')));
+  res.on('close', () => {
+    if (!proxy.destroyed) proxy.destroy();
   });
   proxy.end(body);
 }
@@ -123,7 +131,7 @@ async function proxyApi(req, res) {
 function safeFilePath(urlPath) {
   const pathname = decodeURIComponent(new URL(urlPath, 'http://local').pathname);
   const mapped = pathname === '/' ? '/index.html' : pathname;
-  if (!['/index.html', '/watchdawg.js', '/login.html', '/login.js'].includes(mapped)) return null;
+  if (!['/index.html', '/watchdawg.js', '/login.html', '/login.js', '/login.css'].includes(mapped)) return null;
   return normalize(join(root, mapped));
 }
 
@@ -142,9 +150,9 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('x-frame-options', 'DENY');
   if (req.url?.startsWith('/auth/')) return authRoute(req, res);
   if (req.url?.startsWith('/api/')) return proxyApi(req, res);
-  if (req.url === '/login.html' || req.url === '/login.js') {
+  if (req.url === '/login.html' || req.url === '/login.js' || req.url === '/login.css') {
     res.setHeader('cache-control', 'no-store');
-    res.setHeader('content-security-policy', "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    res.setHeader('content-security-policy', "default-src 'self'; style-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
   }
 
   let file;
@@ -174,4 +182,9 @@ server.on('error', (error) => {
   throw error;
 });
 
+server.headersTimeout = 10_000;
+server.requestTimeout = 15_000;
+server.keepAliveTimeout = 5_000;
+server.maxHeadersCount = 64;
+server.maxRequestsPerSocket = 100;
 server.listen(port, host);
