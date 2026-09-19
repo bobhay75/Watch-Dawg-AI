@@ -121,7 +121,7 @@ require uninstalling the earlier build, which erases its app-private signing
 identity, token, baselines, and pending outbox and therefore requires fresh
 enrollment. An updateable pilot needs a protected, stable release signing key.
 
-## Install on Android 15
+## Install on Android 15 and newer
 
 Use a device you own or are explicitly authorized to manage. With Android
 platform tools installed, enable Developer options and USB debugging on the
@@ -136,19 +136,34 @@ adb shell am start -n com.bobsome1.watchdawg.sensor/.MainActivity
 Then complete the in-app setup:
 
 1. Review the disclosure before enabling collection.
-2. Open **Usage Access** and explicitly allow Watch-Dawg Sensor. On Android 15,
-   the equivalent manual path is normally **Settings > Apps > Special app
-   access > Usage access**.
-3. Run one manual collection and inspect the reported coverage before enabling
+2. Open **Watch-Dawg App Info**. For a sideloaded build on Android 13 or newer,
+   Android may require the owner to open the three-dot menu, choose **Allow
+   restricted settings**, and confirm before sensitive settings can be enabled.
+3. Return to Watch-Dawg, open **Usage Access**, select Watch-Dawg Sensor, and
+   explicitly allow it. The equivalent manual path is normally **Settings >
+   Apps > Special app access > Usage access**.
+4. Run one manual collection and inspect the reported coverage before enabling
    periodic work or sync.
-4. Copy the enrollment record and enroll the exact device key on the server.
-5. Configure the HTTPS ingest endpoint and the per-device token, test one
+5. Copy the enrollment record and enroll the exact device key on the server.
+6. Configure the HTTPS ingest endpoint and the per-device token, test one
    manual sync, and only then opt into periodic collection.
 
 Usage Access is not a normal runtime permission: declaring
 `PACKAGE_USAGE_STATS` in the manifest does not grant it. The owner must use the
 system Settings screen, and revoking it must leave the app operational with
 reduced coverage rather than fabricate results.
+
+The ordinary App Info **Permissions** page can therefore show no allowed
+permissions even when the app is working as designed. The sensor requests no
+camera, microphone, location, contacts, messages, phone, or file permission;
+Usage Access is controlled separately under **Special app access**.
+
+The app opens `ACTION_USAGE_ACCESS_SETTINGS` without a package URI because the
+Android API documents that action as taking no input. The separate App Info
+button uses `ACTION_APPLICATION_DETAILS_SETTINGS` with the app's package URI,
+which is the documented route to the screen containing **Allow restricted
+settings**. Settings intents catch both missing-activity and security failures
+and fall back without crashing.
 
 Clearing application data or uninstalling the sensor deletes its local keys,
 sequence counter, consent state, and package pseudonym secret. Treat the next

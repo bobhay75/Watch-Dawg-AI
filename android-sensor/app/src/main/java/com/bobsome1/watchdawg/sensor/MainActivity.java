@@ -31,6 +31,12 @@ import java.util.concurrent.Executors;
 /** Visible control plane for owner-authorized collection, export, and sync. */
 public final class MainActivity extends Activity {
     private static final int CREATE_DOCUMENT_REQUEST = 901;
+    private static final String USAGE_ACCESS_HELP =
+            "Galaxy setup: Android's normal Permissions page can say no permissions are allowed; "
+                    + "that is expected because Usage Access is under Special app access. If Android "
+                    + "says this setting is restricted, first open "
+                    + "Watch-Dawg App Info below, tap the three-dot menu, and choose Allow restricted "
+                    + "settings. Return here, open Usage Access, select Watch-Dawg Sensor, and turn it on.";
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private TextView status;
@@ -86,7 +92,14 @@ public final class MainActivity extends Activity {
         status.setPadding(0, dp(8), 0, dp(12));
         content.addView(status);
 
-        content.addView(button("Grant or review Usage Access", view -> openUsageAccess()));
+        TextView usageHelp = new TextView(this);
+        usageHelp.setText(USAGE_ACCESS_HELP);
+        usageHelp.setTextSize(15f);
+        usageHelp.setPadding(0, 0, 0, dp(8));
+        content.addView(usageHelp);
+
+        content.addView(button("1. Open Watch-Dawg App Info", view -> openAppInfo()));
+        content.addView(button("2. Open Usage Access", view -> openUsageAccess()));
         content.addView(button("Open Android privacy settings", view -> openPrivacySettings()));
         content.addView(button("Run real scan now", view -> runAsync(
                 "Collecting device evidence…",
@@ -210,8 +223,15 @@ public final class MainActivity extends Activity {
     }
 
     private void openUsageAccess() {
-        Intent intent = new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS);
-        intent.setData(Uri.parse("package:" + getPackageName()));
+        // Android documents ACTION_USAGE_ACCESS_SETTINGS as accepting no input. Some OEM builds,
+        // including Samsung releases, reject or mishandle a package URI on this action.
+        startSettings(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS));
+    }
+
+    private void openAppInfo() {
+        Intent intent = new Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:" + getPackageName()));
         startSettings(intent);
     }
 
@@ -222,8 +242,13 @@ public final class MainActivity extends Activity {
     private void startSettings(Intent intent) {
         try {
             startActivity(intent);
-        } catch (ActivityNotFoundException error) {
-            startActivity(new Intent(Settings.ACTION_SETTINGS));
+        } catch (ActivityNotFoundException | SecurityException error) {
+            try {
+                startActivity(new Intent(Settings.ACTION_SETTINGS));
+            } catch (ActivityNotFoundException | SecurityException fallbackError) {
+                refreshStatus("Android blocked the requested Settings screen. Open Settings > Apps > "
+                        + "Watch-Dawg Sensor manually.");
+            }
         }
     }
 
@@ -336,6 +361,8 @@ public final class MainActivity extends Activity {
         }
         status.setText(message
                 + "\nUsage Access: " + (usage ? "granted" : "not granted")
+                + (usage ? "" : "\nNext: complete steps 1 and 2 below. If step 2 is blocked, use "
+                        + "App Info > three-dot menu > Allow restricted settings first.")
                 + "\nPeriodic collection: " + (scheduled ? "enabled" : "disabled")
                 + "\nSigned sync: " + (syncConfigured ? "configured" : "not configured")
                 + "\nPending signed snapshots: " + pending

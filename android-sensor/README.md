@@ -180,13 +180,29 @@ fresh server enrollment.
 After installation:
 
 1. Open Watch-Dawg Sensor and review its disclosure.
-2. Tap **Grant or review Usage Access** and explicitly enable it if foreground
+2. Tap **1. Open Watch-Dawg App Info**. If Android shows **Allow restricted
+   settings** in the three-dot menu, choose it and confirm. Android 13 and newer
+   can require this owner action for sensitive settings requested by a
+   sideloaded app.
+3. Return to Watch-Dawg and tap **2. Open Usage Access**. Select **Watch-Dawg
+   Sensor** from Android's list and explicitly enable it if foreground
    transition evidence is desired.
-3. Tap **Run real scan now**.
-4. Export the public enrollment record and enroll it in the Watch-Dawg server.
-5. Configure the server-provided HTTPS endpoint and per-device bearer
+4. Tap **Run real scan now**.
+5. Export the public enrollment record and enroll it in the Watch-Dawg server.
+6. Configure the server-provided HTTPS endpoint and per-device bearer
    credential, then manually sync the oldest pending signed snapshot.
-6. Optionally enable periodic local collection. It does not auto-sync.
+7. Optionally enable periodic local collection. It does not auto-sync.
+
+Android's ordinary **App permissions** page may say no permissions are allowed.
+That is expected: Watch-Dawg deliberately requests no camera, microphone,
+location, contacts, messages, phone, or file permission, while Usage Access is
+managed separately under **Special app access**.
+
+The Usage Access button opens Android's full Usage Access list without a
+package-scoped URI. The Android API defines this settings action as accepting
+no input, and the list form avoids OEM-specific failures observed with
+package-scoped intents. Watch-Dawg cannot and does not bypass Android's
+restricted-settings safeguard; only the device owner can approve that step.
 
 ## Distribution and policy note
 
