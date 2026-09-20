@@ -99,7 +99,11 @@ public final class MainActivity extends Activity {
         content.addView(usageHelp);
 
         content.addView(button("1. Open Watch-Dawg App Info", view -> openAppInfo()));
-        content.addView(button("2. Open Usage Access", view -> openUsageAccess()));
+        content.addView(button("2. Open Usage Access (Special access)", view -> openUsageAccess()));
+        content.addView(button("3. Verify Usage Access", view -> refreshStatus(
+                SnapshotCollector.hasUsageAccess(this)
+                        ? "Galaxy reports Usage Access is GRANTED. The sensor is ready to scan."
+                        : "Galaxy reports Usage Access is NOT granted. Enable Watch-Dawg Sensor under Settings > Special access > Usage data access.")));
         content.addView(button("Open Android privacy settings", view -> openPrivacySettings()));
         content.addView(button("Run real scan now", view -> runAsync(
                 "Collecting device evidence…",
@@ -360,9 +364,8 @@ public final class MainActivity extends Activity {
             identity = "\nDevice signing identity: not initialized";
         }
         status.setText(message
-                + "\nUsage Access: " + (usage ? "granted" : "not granted")
-                + (usage ? "" : "\nNext: complete steps 1 and 2 below. If step 2 is blocked, use "
-                        + "App Info > three-dot menu > Allow restricted settings first.")
+                + "\nUsage Access: " + (usage ? "GRANTED" : "NOT GRANTED")
+                + (usage ? "" : "\nNext: use Settings > Special access > Usage data access. Do not use the normal Permissions page.")
                 + "\nPeriodic collection: " + (scheduled ? "enabled" : "disabled")
                 + "\nSigned sync: " + (syncConfigured ? "configured" : "not configured")
                 + "\nPending signed snapshots: " + pending
