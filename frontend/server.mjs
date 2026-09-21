@@ -24,7 +24,7 @@ loadEnv('/app/frontend/.env');
 
 const port = Number(process.env.PORT);
 const host = process.env.HOST;
-const root = '/app';
+const root = process.env.STATIC_ROOT || '/app';
 const backend = process.env.REACT_APP_BACKEND_URL;
 
 if (!port || !host || !backend) {
@@ -63,7 +63,9 @@ function safeFilePath(urlPath) {
 }
 
 function sendText(res, statusCode, message) {
-  res.writeHead(statusCode, { 'content-type': 'text/plain' });
+  const headers = { 'content-type': 'text/plain; charset=utf-8' };
+  if (statusCode === 404) headers['x-robots-tag'] = 'noindex, nofollow';
+  res.writeHead(statusCode, headers);
   res.end(message);
 }
 
