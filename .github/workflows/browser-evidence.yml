@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "sentinel/browser_capture.py"
+      - "sentinel/browser_egress.py"
       - "sentinel/browser/**"
       - "sentinel/proofpass_receipt.py"
       - "sentinel/tests/test_browser_capture.py"
@@ -16,6 +17,7 @@ on:
     branches: [main]
     paths:
       - "sentinel/browser_capture.py"
+      - "sentinel/browser_egress.py"
       - "sentinel/browser/**"
       - "sentinel/proofpass_receipt.py"
       - "sentinel/tests/test_browser_capture.py"
@@ -42,7 +44,7 @@ jobs:
       - name: Install pinned Chromium runtime
         run: python -m playwright install --with-deps chromium
       - name: Compile browser evidence modules
-        run: python -m compileall -q sentinel/browser_capture.py sentinel/proofpass_receipt.py sentinel/tests/test_browser_capture.py
+        run: python -m compileall -q sentinel/browser_capture.py sentinel/browser_egress.py sentinel/proofpass_receipt.py sentinel/tests/test_browser_capture.py
       - name: Run real Chromium evidence and receipt tests
         env:
           WATCH_DAWG_BROWSER_TESTS: "1"
