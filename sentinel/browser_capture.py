@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable, Final
 from urllib.parse import urlsplit, urlunsplit
 
+from .axe_adapter import AxeAdapterError, build_axe_analysis, load_axe_source, run_axe_on_page
 from .browser_egress import BrowserEgressProxy, EGRESS_POLICY_SCHEMA
 from .core import utc_now_iso
 from .evidence_store import ContentAddressedEvidenceStore
@@ -115,9 +116,10 @@ def capture_browser_evidence(
     max_network_events: int = MAX_NETWORK_EVENTS,
     max_console_events: int = MAX_CONSOLE_EVENTS,
     url_validator: Callable[[str], None] = validate_public_http_url,
+    axe_script_path: str | Path | None = None,
     _egress_proxy_factory: Callable[[], BrowserEgressProxy] | None = None,
 ) -> dict[str, Any]:
-    """Capture bounded public/passive browser evidence with no page interaction."""
+    """Capture bounded public/passive browser evidence with optional axe analysis."""
     if not isinstance(target_id, str) or not target_id.strip() or len(target_id) > 200:
         raise BrowserCaptureError("target_id must be non-empty text no longer than 200 characters")
     target_id = target_id.strip()
@@ -130,6 +132,8 @@ def capture_browser_evidence(
     width = min(max(int(viewport.get("width", 1440)), 320), 1920)
     height = min(max(int(viewport.get("height", 900)), 240), 1080)
     viewport = {"width": width, "height": height}
+
+    axe_source = load_axe_source(axe_script_path) if axe_script_path is not None else None
 
     try:
         url_validator(url)
@@ -151,6 +155,7 @@ def capture_browser_evidence(
     blocked_requests: list[dict[str, Any]] = []
     request_count = 0
     request_budget_exceeded = False
+    axe_raw: dict[str, Any] | None = None
 
     def append_network(event: dict[str, Any]) -> None:
         if len(network_events) < max_network_events:
@@ -292,6 +297,7 @@ def capture_browser_evidence(
                     page.wait_for_timeout(settle_ms)
                 elapsed_ms = round((time.monotonic() - started) * 1000, 1)
 
+                # Preserve raw rendered evidence before injecting any audit engine.
                 final_url = _safe_url(page.url)
                 dom_text = page.content()
                 dom_bytes = dom_text.encode("utf-8")
@@ -302,11 +308,15 @@ def capture_browser_evidence(
                 screenshot = page.screenshot(full_page=False, type="png")
                 title = _bounded_text(page.title(), 1_000)
                 main_status = response.status
+
+                if axe_source is not None:
+                    axe_raw = run_axe_on_page(page, axe_source)
+
                 context.close()
                 browser.close()
             egress_summary = egress_proxy.summary()
             egress_attempts = egress_proxy.attempts
-    except BrowserCaptureError:
+    except (BrowserCaptureError, AxeAdapterError):
         raise
     except PlaywrightError as exc:
         raise BrowserCaptureError(f"browser capture failed: {_bounded_text(exc)}") from exc
@@ -448,6 +458,40 @@ def capture_browser_evidence(
         observed_at=observed_at,
         artifact_type="browser-evidence-package-manifest",
     )
+
+    derived_analyses: dict[str, Any] = {}
+    if axe_source is not None and axe_raw is not None:
+        axe_script_artifact = store.put_bytes(
+            axe_source,
+            media_type="application/javascript",
+            source="npm:axe-core",
+            observed_at=observed_at,
+            artifact_type="axe-core-engine-script",
+        )
+        axe_analysis = build_axe_analysis(
+            raw_results=axe_raw,
+            browser_package_ref=package_artifact["ref"],
+            browser_capture_ref=capture_artifact["ref"],
+            engine_script_artifact=axe_script_artifact,
+            target_id=target_id,
+            source=final_url,
+            observed_at=observed_at,
+        )
+        axe_artifact = store.put_json(
+            axe_analysis,
+            source=final_url,
+            observed_at=observed_at,
+            artifact_type="axe-accessibility-analysis",
+        )
+        derived_analyses["axe"] = {
+            "status": axe_analysis["status"],
+            "analysis_ref": axe_artifact["ref"],
+            "engine_script_ref": axe_script_artifact["ref"],
+            "engine_version": axe_analysis["tool"]["version"],
+            "counts": axe_analysis["counts"],
+            "truncated": axe_analysis["truncated"],
+        }
+
     return {
         "schema": BROWSER_PACKAGE_SCHEMA,
         "status": "CAPTURED",
@@ -455,6 +499,7 @@ def capture_browser_evidence(
         "capture_ref": capture_artifact["ref"],
         "artifact_refs": artifact_refs,
         "coverage": coverage,
+        "derived_analyses": derived_analyses,
     }
 
 
@@ -561,6 +606,7 @@ def verify_browser_package(evidence_root: str | Path, package_ref: str) -> dict[
             "The Playwright route layer independently blocks non-public HTTP(S) targets and non-GET/HEAD methods; WebSockets are closed without an upstream connection.",
             "The screenshot is viewport-bounded and the rendered DOM, console, network events, egress decisions, and request count are capped.",
             "Network metadata does not preserve response bodies for subresources.",
+            "Derived analyses such as axe-core are separately content-addressed and are not silently folded into this raw evidence package.",
             "This process-level proxy is a browser egress choke point, not a host firewall or privileged network namespace.",
         ],
     }
@@ -576,6 +622,7 @@ def build_parser() -> argparse.ArgumentParser:
     capture.add_argument("--target-id", required=True)
     capture.add_argument("--timeout-ms", type=int, default=15_000)
     capture.add_argument("--settle-ms", type=int, default=750)
+    capture.add_argument("--axe-script", type=Path)
 
     verify = subparsers.add_parser("verify")
     verify.add_argument("--evidence-root", required=True, type=Path)
@@ -593,10 +640,11 @@ def main() -> int:
                 target_id=args.target_id,
                 timeout_ms=args.timeout_ms,
                 settle_ms=args.settle_ms,
+                axe_script_path=args.axe_script,
             )
         else:
             result = verify_browser_package(args.evidence_root, args.package_ref)
-    except (BrowserCaptureError, OSError) as exc:
+    except (BrowserCaptureError, AxeAdapterError, OSError) as exc:
         print(json.dumps({"status": "FAILED", "error": str(exc)}, indent=2, sort_keys=True))
         return 2
     print(json.dumps(result, indent=2, sort_keys=True))
