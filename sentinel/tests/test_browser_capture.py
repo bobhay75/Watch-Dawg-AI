@@ -16,6 +16,14 @@ from sentinel.browser_capture import (
     verify_browser_package,
 )
 from sentinel.evidence_verify import read_verified_artifact, read_verified_json
+from sentinel.proofpass_receipt import (
+    BROWSER_SUBJECT_TYPE,
+    generate_keypair,
+    issue_receipt,
+    load_private_key,
+    load_public_key,
+    verify_receipt,
+)
 
 
 class BrowserRequestPolicyTests(unittest.TestCase):
@@ -75,21 +83,28 @@ class _FixtureHandler(BaseHTTPRequestHandler):
     "browser integration tests require pinned Playwright + Chromium",
 )
 class BrowserCaptureIntegrationTests(unittest.TestCase):
-    def test_real_chromium_capture_is_content_addressed_and_verifiable(self) -> None:
+    def _start_server(self) -> tuple[ThreadingHTTPServer, threading.Thread]:
         server = ThreadingHTTPServer(("127.0.0.1", 0), _FixtureHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        return server, thread
+
+    def _capture(self, root: Path, server: ThreadingHTTPServer) -> dict[str, object]:
+        url = f"http://127.0.0.1:{server.server_port}/"
+        return capture_browser_evidence(
+            evidence_root=root,
+            url=url,
+            target_id="browser-fixture",
+            settle_ms=200,
+            url_validator=lambda value: None,
+        )
+
+    def test_real_chromium_capture_is_content_addressed_and_verifiable(self) -> None:
+        server, thread = self._start_server()
         try:
             with tempfile.TemporaryDirectory() as directory:
                 root = Path(directory) / "evidence"
-                url = f"http://127.0.0.1:{server.server_port}/"
-                result = capture_browser_evidence(
-                    evidence_root=root,
-                    url=url,
-                    target_id="browser-fixture",
-                    settle_ms=200,
-                    url_validator=lambda value: None,
-                )
+                result = self._capture(root, server)
                 self.assertEqual(result["schema"], BROWSER_PACKAGE_SCHEMA)
                 self.assertEqual(result["status"], "CAPTURED")
                 self.assertFalse(result["coverage"]["authenticated"])
@@ -131,26 +146,52 @@ class BrowserCaptureIntegrationTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=2)
 
+    def test_browser_package_receipt_verifies_with_independent_public_key(self) -> None:
+        server, thread = self._start_server()
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                root = base / "evidence"
+                result = self._capture(root, server)
+                private_path = base / "issuer-private.pem"
+                public_path = base / "issuer-public.pem"
+                generate_keypair(private_path, public_path)
+
+                receipt = issue_receipt(
+                    evidence_root=root,
+                    package_ref=str(result["package_ref"]),
+                    private_key=load_private_key(private_path),
+                    issuer_id="watch-dawg-browser-test",
+                    issued_at="2026-09-23T05:30:00+00:00",
+                )
+                self.assertEqual(receipt["subject"]["type"], BROWSER_SUBJECT_TYPE)
+                self.assertEqual(receipt["evidence"]["status"], "VERIFIED_BROWSER_EVIDENCE")
+
+                verification = verify_receipt(
+                    evidence_root=root,
+                    receipt=receipt,
+                    public_key=load_public_key(public_path),
+                )
+                self.assertEqual(verification["status"], "VERIFIED_RECEIPT")
+                self.assertEqual(verification["subject_type"], BROWSER_SUBJECT_TYPE)
+                self.assertEqual(verification["evidence_integrity"], "VERIFIED_BROWSER_EVIDENCE")
+                self.assertEqual(verification["package_ref"], result["package_ref"])
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
     def test_browser_package_tamper_fails_verification(self) -> None:
-        server = ThreadingHTTPServer(("127.0.0.1", 0), _FixtureHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
+        server, thread = self._start_server()
         try:
             with tempfile.TemporaryDirectory() as directory:
                 root = Path(directory) / "evidence"
-                url = f"http://127.0.0.1:{server.server_port}/"
-                result = capture_browser_evidence(
-                    evidence_root=root,
-                    url=url,
-                    target_id="browser-fixture",
-                    settle_ms=100,
-                    url_validator=lambda value: None,
-                )
-                digest = result["package_ref"].removeprefix("sha256:")
+                result = self._capture(root, server)
+                digest = str(result["package_ref"]).removeprefix("sha256:")
                 package_path = root / "sha256" / digest[:2] / digest
                 package_path.write_bytes(b"tampered")
                 with self.assertRaisesRegex(BrowserCaptureError, "failed hash verification"):
-                    verify_browser_package(root, result["package_ref"])
+                    verify_browser_package(root, str(result["package_ref"]))
         finally:
             server.shutdown()
             server.server_close()
