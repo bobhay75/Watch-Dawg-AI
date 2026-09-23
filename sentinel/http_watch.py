@@ -11,7 +11,8 @@ from urllib.error import HTTPError
 from urllib.parse import urljoin, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from .core import Finding, Observation, stable_hash
+from .core import Finding, Observation, stable_hash, utc_now_iso
+from .evidence_store import ContentAddressedEvidenceStore
 
 
 MAX_BODY_BYTES = 2_000_000
@@ -96,6 +97,7 @@ class SafeHttpFetcher:
                 "latency_ms": elapsed_ms,
                 "headers": headers,
                 "body": text,
+                "body_raw": body,
                 "body_bytes": len(body),
                 "truncated": truncated,
             }
@@ -165,8 +167,13 @@ class HttpWatchPack:
     kind = "http"
     allowed_authorization_modes = {"public", "owner", "contract"}
 
-    def __init__(self, fetcher: HttpFetcher | None = None):
+    def __init__(
+        self,
+        fetcher: HttpFetcher | None = None,
+        evidence_store: ContentAddressedEvidenceStore | None = None,
+    ):
         self.fetcher = fetcher or SafeHttpFetcher()
+        self.evidence_store = evidence_store
 
     def observe(self, target: dict[str, Any]) -> Observation:
         target_id = str(target["id"])
@@ -174,9 +181,15 @@ class HttpWatchPack:
         safe_url = sanitize_http_url_for_evidence(url)
         timeout = min(max(float(target.get("timeout_seconds", 10)), 1), 30)
         max_bytes = min(max(int(target.get("max_body_bytes", 500_000)), 1_000), MAX_BODY_BYTES)
+        observed_at = utc_now_iso()
         try:
+            if target.get("require_content_addressed_evidence") and self.evidence_store is None:
+                raise ValueError("content-addressed evidence store is required for this target")
             response = self.fetcher.fetch(url, timeout, max_bytes)
             body = str(response.pop("body"))
+            raw_body = response.pop("body_raw", None)
+            if not isinstance(raw_body, bytes):
+                raw_body = body.encode("utf-8")
             response["final_url"] = sanitize_http_url_for_evidence(
                 response.get("final_url", url),
                 fallback=safe_url,
@@ -184,11 +197,21 @@ class HttpWatchPack:
             parser = _HtmlFactsParser()
             parser.feed(body)
             headers = dict(response.get("headers", {}))
+            coverage = {
+                "scope": "single_url",
+                "requested_url": safe_url,
+                "final_url": response["final_url"],
+                "authenticated": False,
+                "javascript_rendering": False,
+                "subresources_collected": False,
+                "body_truncated": bool(response.get("truncated", False)),
+                "max_body_bytes": max_bytes,
+            }
             facts = {
                 **response,
                 "headers": headers,
                 "title": " ".join("".join(parser.title_parts).split()),
-                "body_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+                "body_sha256": hashlib.sha256(raw_body).hexdigest(),
                 "json_ld_offer_prices": _json_ld_offer_prices(parser.json_ld_scripts),
                 "required_text": {
                     marker: marker.casefold() in body.casefold()
@@ -198,13 +221,48 @@ class HttpWatchPack:
                     marker: marker.casefold() in body.casefold()
                     for marker in target.get("checks", {}).get("not_contains", [])
                 },
+                "coverage": coverage,
             }
+            evidence = [facts["final_url"]]
+            if self.evidence_store is not None:
+                body_artifact = self.evidence_store.put_bytes(
+                    raw_body,
+                    media_type=str(headers.get("content-type", "application/octet-stream")),
+                    source=facts["final_url"],
+                    observed_at=observed_at,
+                    artifact_type="http-response-body",
+                )
+                capture_manifest = {
+                    "schema": "watch-dawg-http-capture/v1",
+                    "target_id": target_id,
+                    "observed_at": observed_at,
+                    "requested_url": safe_url,
+                    "final_url": facts["final_url"],
+                    "status": facts["status"],
+                    "latency_ms": facts["latency_ms"],
+                    "headers": headers,
+                    "body": body_artifact,
+                    "coverage": coverage,
+                }
+                capture_artifact = self.evidence_store.put_json(
+                    capture_manifest,
+                    source=facts["final_url"],
+                    observed_at=observed_at,
+                    artifact_type="http-capture-manifest",
+                )
+                facts["evidence_package"] = {
+                    "schema": "watch-dawg-evidence-package/v1",
+                    "capture_ref": capture_artifact["ref"],
+                    "artifacts": [body_artifact, capture_artifact],
+                }
+                evidence.extend([capture_artifact["ref"], body_artifact["ref"]])
             return Observation(
                 target_id=target_id,
                 kind=self.kind,
                 ok=True,
                 facts=facts,
-                evidence=[facts["final_url"]],
+                observed_at=observed_at,
+                evidence=evidence,
             )
         except Exception as exc:
             return Observation(
@@ -212,6 +270,7 @@ class HttpWatchPack:
                 kind=self.kind,
                 ok=False,
                 facts={"error_type": type(exc).__name__, "error": str(exc)[:300], "url": safe_url},
+                observed_at=observed_at,
                 evidence=[safe_url],
             )
 
