@@ -83,7 +83,7 @@ class ContentAddressedEvidenceStoreTests(unittest.TestCase):
 
 
 class HttpEvidencePackageTests(unittest.TestCase):
-    def test_http_observation_preserves_body_and_capture_manifest(self) -> None:
+    def test_http_observation_preserves_body_capture_and_package_manifests(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = ContentAddressedEvidenceStore(Path(directory) / "evidence")
             fetcher = FakeHttpFetcher()
@@ -97,7 +97,9 @@ class HttpEvidencePackageTests(unittest.TestCase):
             self.assertTrue(observation.ok)
             package = observation.facts["evidence_package"]
             self.assertEqual(package["schema"], "watch-dawg-evidence-package/v1")
-            self.assertEqual(len(package["artifacts"]), 2)
+            self.assertEqual(len(package["artifacts"]), 3)
+            self.assertTrue(store.verify(package["package_ref"]))
+            self.assertTrue(store.verify(package["capture_ref"]))
             for artifact in package["artifacts"]:
                 self.assertTrue(store.verify(artifact["ref"]))
             self.assertEqual(
@@ -140,6 +142,7 @@ class HttpEvidencePackageTests(unittest.TestCase):
             site = result["results"][0]
             self.assertEqual(site["coverage"]["scope"], "single_url")
             self.assertEqual(site["evidence_package"]["schema"], "watch-dawg-evidence-package/v1")
+            self.assertTrue(store.verify(site["evidence_package"]["package_ref"]))
             self.assertEqual(site["finding_counts"]["inference"], 0)
             self.assertEqual(site["finding_counts"]["verified"], 0)
             self.assertEqual(site["verdict"], "VERIFIED")
