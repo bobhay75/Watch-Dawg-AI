@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import tempfile
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from sentinel.browser_capture import (
     BROWSER_PACKAGE_SCHEMA,
@@ -14,6 +16,11 @@ from sentinel.browser_capture import (
     _validate_browser_request,
     capture_browser_evidence,
     verify_browser_package,
+)
+from sentinel.browser_egress import (
+    BrowserEgressError,
+    BrowserEgressProxy,
+    resolve_public_endpoints,
 )
 from sentinel.evidence_verify import read_verified_artifact, read_verified_json
 from sentinel.proofpass_receipt import (
@@ -47,6 +54,35 @@ class BrowserRequestPolicyTests(unittest.TestCase):
             self.assertTrue(allowed)
             self.assertIsNone(reason)
 
+    def test_resolve_once_policy_rejects_mixed_public_and_private_dns_answers(self) -> None:
+        def resolver(host: str, port: int, *, type: int) -> list[tuple[object, ...]]:
+            self.assertEqual(host, "mixed.example")
+            self.assertEqual(port, 443)
+            self.assertEqual(type, socket.SOCK_STREAM)
+            return [
+                (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", 443)),
+                (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("127.0.0.1", 443)),
+            ]
+
+        with self.assertRaisesRegex(BrowserEgressError, "non-public address"):
+            resolve_public_endpoints("mixed.example", 443, resolver=resolver)
+
+    def test_loopback_proxy_denies_direct_connect_to_private_address(self) -> None:
+        with BrowserEgressProxy() as proxy:
+            parsed = urlsplit(proxy.server_url)
+            self.assertIsNotNone(parsed.hostname)
+            self.assertIsNotNone(parsed.port)
+            with socket.create_connection((str(parsed.hostname), int(parsed.port)), timeout=2) as client:
+                client.sendall(
+                    b"CONNECT 127.0.0.1:443 HTTP/1.1\r\n"
+                    b"Host: 127.0.0.1:443\r\n"
+                    b"Connection: close\r\n\r\n"
+                )
+                response = client.recv(4096)
+            self.assertIn(b"403 Forbidden", response)
+            self.assertTrue(proxy.attempts)
+            self.assertFalse(proxy.attempts[0]["allowed"])
+
 
 class _FixtureHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
@@ -78,6 +114,12 @@ class _FixtureHandler(BaseHTTPRequestHandler):
         return
 
 
+def _loopback_test_proxy() -> BrowserEgressProxy:
+    # Integration tests use an isolated local fixture. This override is supplied
+    # only through the private test hook; browser capture CLI/API do not expose it.
+    return BrowserEgressProxy(address_policy=lambda address: True)
+
+
 @unittest.skipUnless(
     os.environ.get("WATCH_DAWG_BROWSER_TESTS") == "1",
     "browser integration tests require pinned Playwright + Chromium",
@@ -97,6 +139,7 @@ class BrowserCaptureIntegrationTests(unittest.TestCase):
             target_id="browser-fixture",
             settle_ms=200,
             url_validator=lambda value: None,
+            _egress_proxy_factory=_loopback_test_proxy,
         )
 
     def test_real_chromium_capture_is_content_addressed_and_verifiable(self) -> None:
@@ -110,12 +153,17 @@ class BrowserCaptureIntegrationTests(unittest.TestCase):
                 self.assertFalse(result["coverage"]["authenticated"])
                 self.assertTrue(result["coverage"]["javascript_rendering"])
                 self.assertTrue(result["coverage"]["passive_methods_only"])
+                self.assertEqual(
+                    result["coverage"]["browser_egress"]["mode"],
+                    "resolve_once_loopback_proxy",
+                )
+                self.assertEqual(result["coverage"]["websockets"], "blocked_without_upstream_connection")
 
-                verified = verify_browser_package(root, result["package_ref"])
+                verified = verify_browser_package(root, str(result["package_ref"]))
                 self.assertEqual(verified["status"], "VERIFIED_BROWSER_EVIDENCE")
                 self.assertEqual(verified["package_ref"], result["package_ref"])
 
-                capture = read_verified_json(root, result["capture_ref"])
+                capture = read_verified_json(root, str(result["capture_ref"]))
                 self.assertEqual(capture["title"], "Browser Evidence Fixture")
                 artifacts = capture["artifacts"]
 
@@ -138,9 +186,17 @@ class BrowserCaptureIntegrationTests(unittest.TestCase):
                 )
                 self.assertGreaterEqual(network["requests_seen"], 2)
                 self.assertFalse(network["request_budget_exceeded"])
+                self.assertEqual(network["egress_policy_ref"], artifacts["egress"]["ref"])
                 self.assertTrue(
                     any(event.get("status") == 200 for event in network["events"] if event.get("event") == "response")
                 )
+
+                egress = json.loads(
+                    read_verified_artifact(root, artifacts["egress"]["ref"]).decode("utf-8")
+                )
+                self.assertEqual(egress["summary"]["mode"], "resolve_once_loopback_proxy")
+                self.assertGreaterEqual(egress["summary"]["allowed_attempts"], 1)
+                self.assertTrue(any(item.get("allowed") for item in egress["attempts"]))
         finally:
             server.shutdown()
             server.server_close()
