@@ -32,6 +32,7 @@ from sentinel.proofpass_receipt import (
     load_public_key,
     verify_receipt,
 )
+from sentinel.website_audit_bundle import export_browser_audit
 
 
 class BrowserRequestPolicyTests(unittest.TestCase):
@@ -181,7 +182,8 @@ class BrowserCaptureIntegrationTests(unittest.TestCase):
         server, thread = self._start_server()
         try:
             with tempfile.TemporaryDirectory() as directory:
-                root = Path(directory) / "evidence"
+                base = Path(directory)
+                root = base / "evidence"
                 result = self._capture(root, server, with_axe=True)
                 self.assertEqual(result["schema"], BROWSER_PACKAGE_SCHEMA)
                 self.assertEqual(result["status"], "CAPTURED")
@@ -251,6 +253,28 @@ class BrowserCaptureIntegrationTests(unittest.TestCase):
                     axe_analysis["options"]["additional_network_requests_expected"],
                     0,
                 )
+
+                audit_dir = base / "audit-export"
+                exported = export_browser_audit(
+                    evidence_root=root,
+                    browser_package_ref=str(result["package_ref"]),
+                    axe_analysis_ref=str(axe_summary["analysis_ref"]),
+                    destination=audit_dir,
+                )
+                self.assertEqual(exported["status"], "AUDIT_EXPORTED")
+                self.assertIn("AUDIT.md", exported["files"])
+                self.assertIn("audit.json", exported["files"])
+                self.assertIn("screenshot.png", exported["files"])
+                audit = json.loads((audit_dir / "audit.json").read_text(encoding="utf-8"))
+                self.assertEqual(audit["status"], "REVIEW_READY")
+                self.assertFalse(audit["interpretation"]["ai_generated"])
+                self.assertTrue(
+                    any(item.get("rule_id") == "image-alt" for item in audit["deterministic_findings"])
+                )
+                markdown = (audit_dir / "AUDIT.md").read_text(encoding="utf-8")
+                self.assertIn("## Deterministic findings", markdown)
+                self.assertIn("## Untested / out of scope", markdown)
+                self.assertNotIn("Watch-Dawg Score", markdown)
         finally:
             server.shutdown()
             server.server_close()
