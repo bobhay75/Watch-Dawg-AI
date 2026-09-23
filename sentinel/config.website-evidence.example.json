@@ -1,0 +1,26 @@
+{
+  "evidence_root": ".sentinel/evidence",
+  "targets": [
+    {
+      "id": "public-homepage-audit",
+      "kind": "http",
+      "url": "https://example.com/",
+      "authorization": {
+        "mode": "public"
+      },
+      "require_content_addressed_evidence": true,
+      "timeout_seconds": 10,
+      "max_body_bytes": 500000,
+      "checks": {
+        "allowed_statuses": [200],
+        "max_latency_ms": 2500,
+        "required_headers": [
+          "strict-transport-security",
+          "content-security-policy",
+          "x-content-type-options"
+        ],
+        "track_content": true
+      }
+    }
+  ]
+}
