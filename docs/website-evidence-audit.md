@@ -13,8 +13,9 @@ The website audit path is:
 5. preserve a content-addressed package manifest with one stable `package_ref`;
 6. run deterministic checks against the observation;
 7. expose coverage limits and deterministic findings;
-8. allow interpretation or remediation proposals only downstream;
-9. require separate authorization before any write or remediation action.
+8. optionally issue a ProofPass v1 receipt over the already-verified `package_ref`;
+9. allow interpretation or remediation proposals only downstream;
+10. require separate authorization before any write or remediation action.
 
 A target can set `require_content_addressed_evidence: true`. If no evidence store is configured, collection fails before the network request. This is the fail-closed mode for audit-grade targets.
 
@@ -34,7 +35,7 @@ This establishes integrity and linkage of the collected artifacts. It does **not
 
 ## Independent integrity verification
 
-The verifier uses Python's standard library only and does not invoke the Watch-Dawg AI endpoint. It re-hashes the package, capture, and response-body artifacts and validates the package-to-capture-to-body linkage, target identity, capture time, coverage, body size, and source URL.
+The evidence verifier uses Python's standard library only and does not invoke the Watch-Dawg AI endpoint. It re-hashes the package, capture, and response-body artifacts and validates the package-to-capture-to-body linkage, target identity, capture time, coverage, body size, and source URL.
 
 Verify in place:
 
@@ -55,7 +56,54 @@ python -m sentinel.evidence_verify \
 
 The export contains `package.json`, `capture.json`, `response-body.bin`, `verification.json`, and a short limitations notice. Export refuses a non-empty destination so it cannot silently replace unrelated material.
 
-A successful verifier result is `VERIFIED_INTEGRITY`, not `VERIFIED_TRUTH`. Signature/authenticity verification remains a separate release gate.
+A successful evidence verifier result is `VERIFIED_INTEGRITY`, not `VERIFIED_TRUTH`.
+
+## ProofPass receipt v1
+
+ProofPass v1 adds an Ed25519 signature over an evidence package that has already passed independent SHA-256 verification. The receipt binds:
+
+- the exact `package_ref`;
+- target id, final source URL, and observation timestamp;
+- the package coverage statement;
+- the complete independently verified artifact-reference list;
+- an issuer id and public-key fingerprint;
+- issuance time and explicit limitations.
+
+The signature key is **not** embedded as a trust decision in the receipt. A verifier must supply the public key it already trusts. This prevents a receipt from manufacturing its own authority by carrying an arbitrary self-declared key.
+
+Generate a review/test keypair outside source control:
+
+```bash
+python -m sentinel.proofpass_receipt generate-key \
+  --private-key ./secrets/proofpass-private.pem \
+  --public-key ./proofpass-public.pem
+```
+
+The private-key loader rejects symlinks, non-regular files, files owned by another local user, and files readable or writable by group/other users.
+
+Issue a receipt only after the package verifies:
+
+```bash
+python -m sentinel.proofpass_receipt sign \
+  --evidence-root .sentinel/evidence \
+  --package-ref sha256:<package-digest> \
+  --private-key ./secrets/proofpass-private.pem \
+  --issuer watch-dawg-review \
+  --out ./proofpass-receipt.json
+```
+
+Verify both the signature and the still-present evidence package using an independently supplied public key:
+
+```bash
+python -m sentinel.proofpass_receipt verify \
+  --evidence-root .sentinel/evidence \
+  --receipt ./proofpass-receipt.json \
+  --public-key ./proofpass-public.pem
+```
+
+A successful result is `VERIFIED_RECEIPT`. That means the supplied trusted public key validates the Ed25519 signature **and** the referenced package still passes independent integrity verification. It does not mean the website, a vulnerability claim, or a business allegation is true.
+
+The v1 keypair helper intentionally writes an unencrypted local private key with restrictive permissions for controlled review/pilot use. A production deployment that needs stronger compromise resistance should move signing into an external KMS/HSM or equivalent protected signer rather than treating a shared-host filesystem key as a final trust anchor.
 
 ## Current deterministic coverage
 
@@ -83,6 +131,7 @@ The first slice is intentionally narrow. A capture reports these limits instead 
 - screenshots are not captured in this slice;
 - response headers are captured as the HTTP client's normalized header map, not as raw wire bytes;
 - the local content-addressed store provides write-once-by-digest behavior in Watch-Dawg code, not filesystem WORM guarantees against a privileged host administrator;
+- local ProofPass private-key files are not equivalent to HSM/KMS-backed signing keys;
 - no exploit attempts, credential guessing, mutation, port scanning, or automatic remediation occurs;
 - no claim is made that the current deterministic checks replace a specialized accessibility, CVE, penetration-testing, or browser-performance engine.
 
@@ -98,12 +147,12 @@ For audit-grade website targets, keep `require_content_addressed_evidence` enabl
 
 Before this can be marketed as a complete Website Evidence Audit, require all of the following:
 
-1. CI-green evidence-store, verifier, and HTTP integration tests.
-2. A versioned receipt that signs or otherwise independently authenticates the package manifest; hashes alone establish integrity, not signer identity.
+1. CI-green evidence-store, verifier, ProofPass receipt, and HTTP integration tests.
+2. Controlled key-management and issuer-trust policy for any real customer receipt; production should not depend on an unprotected shared-host private key.
 3. Browser-based collection for JavaScript-rendered DOM, network waterfall, console failures, and screenshots, with the same content-addressed storage rules.
 4. Deterministic adapters for established tools such as axe-core/Lighthouse and approved security scanners rather than asking an LLM to reproduce their checks.
 5. Machine-enforceable authorization profiles for any active or authenticated test mode.
 6. A before/after verification receipt for authorized remediation workflows.
 7. Stronger deployment storage controls if the commercial threat model requires resistance to privileged-host tampering.
 
-Until those gates are met, this branch is an evidence-substrate hardening slice, not a claim of a finished commercial scanner.
+Until those gates are met, this branch is an evidence-substrate and receipt-authenticity hardening slice, not a claim of a finished commercial scanner.
