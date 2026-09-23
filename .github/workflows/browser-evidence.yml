@@ -6,6 +6,7 @@ on:
       - "sentinel/browser_capture.py"
       - "sentinel/browser_egress.py"
       - "sentinel/axe_adapter.py"
+      - "sentinel/website_audit_bundle.py"
       - "sentinel/browser/**"
       - "sentinel/audit_tools/**"
       - "sentinel/proofpass_receipt.py"
@@ -21,6 +22,7 @@ on:
       - "sentinel/browser_capture.py"
       - "sentinel/browser_egress.py"
       - "sentinel/axe_adapter.py"
+      - "sentinel/website_audit_bundle.py"
       - "sentinel/browser/**"
       - "sentinel/audit_tools/**"
       - "sentinel/proofpass_receipt.py"
@@ -53,8 +55,8 @@ jobs:
       - name: Install pinned Chromium runtime
         run: python -m playwright install --with-deps chromium
       - name: Compile browser evidence modules
-        run: python -m compileall -q sentinel/browser_capture.py sentinel/browser_egress.py sentinel/axe_adapter.py sentinel/proofpass_receipt.py sentinel/tests/test_browser_capture.py
-      - name: Run real Chromium evidence, axe, and receipt tests
+        run: python -m compileall -q sentinel/browser_capture.py sentinel/browser_egress.py sentinel/axe_adapter.py sentinel/website_audit_bundle.py sentinel/proofpass_receipt.py sentinel/tests/test_browser_capture.py
+      - name: Run real Chromium evidence, axe, receipt, and audit-bundle tests
         env:
           WATCH_DAWG_BROWSER_TESTS: "1"
           WATCH_DAWG_AXE_SCRIPT: "sentinel/audit_tools/node_modules/axe-core/axe.min.js"
