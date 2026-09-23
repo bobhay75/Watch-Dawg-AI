@@ -23,7 +23,7 @@ MAX_CONSOLE_EVENTS: Final[int] = 200
 MAX_NETWORK_EVENTS: Final[int] = 500
 MAX_REQUESTS: Final[int] = 250
 MAX_MESSAGE_CHARS: Final[int] = 2_000
-ALLOWED_PASSIVE_METHODS: Final[frozenset[str]] = frozenset({"GET", "HEAD", "OPTIONS"})
+ALLOWED_PASSIVE_METHODS: Final[frozenset[str]] = frozenset({"GET", "HEAD"})
 LOCAL_SCHEMES: Final[frozenset[str]] = frozenset({"about", "blob", "data"})
 
 
@@ -92,6 +92,17 @@ def _canonical_json_bytes(payload: Any) -> bytes:
     ).encode("utf-8")
 
 
+def _verified_json_artifact(root: Path, reference: str, label: str) -> dict[str, Any]:
+    try:
+        raw = read_verified_artifact(root, reference)
+        value = json.loads(raw.decode("utf-8"))
+    except (PackageVerificationError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise BrowserCaptureError(f"browser {label} artifact is not verified JSON") from exc
+    if not isinstance(value, dict):
+        raise BrowserCaptureError(f"browser {label} artifact must contain a JSON object")
+    return value
+
+
 def capture_browser_evidence(
     *,
     evidence_root: str | Path,
@@ -106,18 +117,7 @@ def capture_browser_evidence(
     url_validator: Callable[[str], None] = validate_public_http_url,
     _egress_proxy_factory: Callable[[], BrowserEgressProxy] | None = None,
 ) -> dict[str, Any]:
-    """Capture bounded public/passive browser evidence with no page interaction.
-
-    Browser traffic is forced through a loopback egress proxy that resolves a
-    hostname once, rejects mixed/non-public answer sets, and connects directly
-    to the validated IP. The Playwright route remains a second policy layer.
-    WebSockets are closed locally without connecting to the server. Non-passive
-    HTTP methods are aborted. The capture performs no clicks, form submissions,
-    credential injection, downloads, or remediation.
-
-    ``_egress_proxy_factory`` exists only so the real-Chromium test can route to
-    its loopback fixture. The CLI/API do not expose an egress-policy override.
-    """
+    """Capture bounded public/passive browser evidence with no page interaction."""
     if not isinstance(target_id, str) or not target_id.strip() or len(target_id) > 200:
         raise BrowserCaptureError("target_id must be non-empty text no longer than 200 characters")
     target_id = target_id.strip()
@@ -246,12 +246,7 @@ def capture_browser_evidence(
                     )
 
                 def on_page_error(error: Any) -> None:
-                    append_console(
-                        {
-                            "type": "pageerror",
-                            "text": _bounded_text(error),
-                        }
-                    )
+                    append_console({"type": "pageerror", "text": _bounded_text(error)})
 
                 def on_response(response: Any) -> None:
                     request = response.request
@@ -375,6 +370,7 @@ def capture_browser_evidence(
         artifact_type="browser-network-events",
     )
 
+    egress_policy = egress_summary.get("policy", {})
     coverage = {
         "scope": "single_url_browser",
         "requested_url": _safe_url(url),
@@ -386,10 +382,12 @@ def capture_browser_evidence(
         "passive_methods_only": sorted(ALLOWED_PASSIVE_METHODS),
         "browser_egress": {
             "schema": EGRESS_POLICY_SCHEMA,
-            "mode": egress_summary["mode"],
-            "public_addresses_only": True,
-            "mixed_public_private_dns_answers": "deny",
-            "connect_to_validated_ip": True,
+            "mode": egress_summary.get("mode"),
+            "public_addresses_only": egress_policy.get("public_addresses_only"),
+            "mixed_public_private_dns_answers": egress_policy.get("mixed_public_private_dns_answers"),
+            "connect_to_validated_ip": egress_policy.get("connect_to_validated_ip"),
+            "allowed_tcp_ports": egress_policy.get("allowed_tcp_ports"),
+            "passive_plain_http_methods": egress_policy.get("passive_plain_http_methods"),
             "proxy_bypass_loopback_disabled": True,
             "quic_disabled": True,
             "non_proxied_webrtc_udp_policy": "disabled",
@@ -509,6 +507,41 @@ def verify_browser_package(evidence_root: str | Path, package_ref: str) -> dict[
         raise BrowserCaptureError("browser package artifact_refs must be a list of references")
     if not required_refs.issubset(set(artifact_refs)):
         raise BrowserCaptureError("browser package artifact_refs omit required artifacts")
+
+    egress_ref = artifacts["egress"]["ref"]
+    network_ref = artifacts["network"]["ref"]
+    egress = _verified_json_artifact(root, egress_ref, "egress")
+    network = _verified_json_artifact(root, network_ref, "network")
+    if egress.get("schema") != EGRESS_POLICY_SCHEMA:
+        raise BrowserCaptureError("browser egress artifact schema is unsupported")
+    if network.get("schema") != "watch-dawg-browser-network/v1":
+        raise BrowserCaptureError("browser network artifact schema is unsupported")
+    if network.get("egress_policy_ref") != egress_ref:
+        raise BrowserCaptureError("browser network artifact does not reference the verified egress artifact")
+
+    summary = egress.get("summary")
+    if not isinstance(summary, dict) or not isinstance(summary.get("policy"), dict):
+        raise BrowserCaptureError("browser egress summary is incomplete")
+    policy = summary["policy"]
+    coverage = package.get("coverage")
+    if not isinstance(coverage, dict) or not isinstance(coverage.get("browser_egress"), dict):
+        raise BrowserCaptureError("browser coverage is missing egress policy")
+    coverage_egress = coverage["browser_egress"]
+    expected_egress = {
+        "schema": EGRESS_POLICY_SCHEMA,
+        "mode": summary.get("mode"),
+        "public_addresses_only": policy.get("public_addresses_only"),
+        "mixed_public_private_dns_answers": policy.get("mixed_public_private_dns_answers"),
+        "connect_to_validated_ip": policy.get("connect_to_validated_ip"),
+        "allowed_tcp_ports": policy.get("allowed_tcp_ports"),
+        "passive_plain_http_methods": policy.get("passive_plain_http_methods"),
+        "proxy_bypass_loopback_disabled": True,
+        "quic_disabled": True,
+        "non_proxied_webrtc_udp_policy": "disabled",
+    }
+    if coverage_egress != expected_egress:
+        raise BrowserCaptureError("browser coverage egress statement does not match the verified egress artifact")
+
     if capture_ref not in verified_refs:
         verified_refs.append(capture_ref)
     return {
@@ -524,8 +557,8 @@ def verify_browser_package(evidence_root: str | Path, package_ref: str) -> dict[
         "coverage": package.get("coverage"),
         "limitations": [
             "Browser evidence establishes integrity of captured artifacts, not the truth of a business claim.",
-            "HTTP(S) browser traffic is forced through a loopback proxy that resolves once, rejects mixed/non-public DNS answers, and connects to the validated IP.",
-            "The Playwright route layer independently blocks non-public HTTP(S) targets and non-passive HTTP methods; WebSockets are closed without an upstream connection.",
+            "HTTP(S) browser traffic is forced through a loopback proxy that resolves once, rejects mixed/non-public DNS answers, connects to the validated IP, and restricts TCP destinations to the recorded allowlist.",
+            "The Playwright route layer independently blocks non-public HTTP(S) targets and non-GET/HEAD methods; WebSockets are closed without an upstream connection.",
             "The screenshot is viewport-bounded and the rendered DOM, console, network events, egress decisions, and request count are capped.",
             "Network metadata does not preserve response bodies for subresources.",
             "This process-level proxy is a browser egress choke point, not a host firewall or privileged network namespace.",
