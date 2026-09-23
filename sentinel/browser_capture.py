@@ -5,8 +5,9 @@ import json
 import time
 from pathlib import Path
 from typing import Any, Callable, Final
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
+from .browser_egress import BrowserEgressProxy, EGRESS_POLICY_SCHEMA
 from .core import utc_now_iso
 from .evidence_store import ContentAddressedEvidenceStore
 from .evidence_verify import PackageVerificationError, read_verified_artifact, read_verified_json
@@ -37,6 +38,22 @@ def _bounded_text(value: Any, limit: int = MAX_MESSAGE_CHARS) -> str:
 
 def _safe_url(value: Any) -> str:
     return sanitize_http_url_for_evidence(value)
+
+
+def _safe_websocket_url(value: Any) -> str:
+    try:
+        parsed = urlsplit(str(value))
+        if parsed.scheme.lower() not in {"ws", "wss"} or not parsed.hostname:
+            return "<websocket>"
+        hostname = parsed.hostname
+        if ":" in hostname:
+            hostname = f"[{hostname}]"
+        port = parsed.port
+        default = 443 if parsed.scheme.lower() == "wss" else 80
+        netloc = hostname if port in {None, default} else f"{hostname}:{port}"
+        return urlunsplit((parsed.scheme.lower(), netloc, parsed.path, "", ""))
+    except (TypeError, ValueError):
+        return "<websocket>"
 
 
 def _validate_browser_request(
@@ -87,12 +104,19 @@ def capture_browser_evidence(
     max_network_events: int = MAX_NETWORK_EVENTS,
     max_console_events: int = MAX_CONSOLE_EVENTS,
     url_validator: Callable[[str], None] = validate_public_http_url,
+    _egress_proxy_factory: Callable[[], BrowserEgressProxy] | None = None,
 ) -> dict[str, Any]:
     """Capture bounded public/passive browser evidence with no page interaction.
 
-    Every HTTP(S) subrequest is revalidated before it is allowed to leave the
-    browser. Non-passive methods are aborted. The capture performs no clicks,
-    form submissions, credential injection, downloads, or remediation.
+    Browser traffic is forced through a loopback egress proxy that resolves a
+    hostname once, rejects mixed/non-public answer sets, and connects directly
+    to the validated IP. The Playwright route remains a second policy layer.
+    WebSockets are closed locally without connecting to the server. Non-passive
+    HTTP methods are aborted. The capture performs no clicks, form submissions,
+    credential injection, downloads, or remediation.
+
+    ``_egress_proxy_factory`` exists only so the real-Chromium test can route to
+    its loopback fixture. The CLI/API do not expose an egress-policy override.
     """
     if not isinstance(target_id, str) or not target_id.strip() or len(target_id) > 200:
         raise BrowserCaptureError("target_id must be non-empty text no longer than 200 characters")
@@ -140,128 +164,153 @@ def capture_browser_evidence(
         if len(blocked_requests) < 100:
             blocked_requests.append(event)
 
+    proxy_factory = _egress_proxy_factory or BrowserEgressProxy
     try:
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=True)
-            context = browser.new_context(
-                viewport=viewport,
-                accept_downloads=False,
-                service_workers="block",
-                java_script_enabled=True,
-                ignore_https_errors=False,
-            )
-            page = context.new_page()
-            page.set_default_timeout(timeout_ms)
-            page.set_default_navigation_timeout(timeout_ms)
+        with proxy_factory() as egress_proxy:
+            with sync_playwright() as playwright:
+                browser = playwright.chromium.launch(
+                    headless=True,
+                    proxy={"server": egress_proxy.server_url},
+                    args=[
+                        "--proxy-bypass-list=<-loopback>",
+                        "--disable-quic",
+                        "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+                    ],
+                )
+                context = browser.new_context(
+                    viewport=viewport,
+                    accept_downloads=False,
+                    service_workers="block",
+                    java_script_enabled=True,
+                    ignore_https_errors=False,
+                )
 
-            def handle_route(route: Any, request: Any) -> None:
-                nonlocal request_count, request_budget_exceeded
-                request_count += 1
-                safe = _safe_url(request.url)
-                if request_count > max_requests:
-                    request_budget_exceeded = True
+                def block_websocket(websocket_route: Any) -> None:
                     append_blocked(
                         {
-                            "url": safe,
-                            "method": request.method,
-                            "resource_type": request.resource_type,
-                            "reason": "request_budget_exceeded",
+                            "url": _safe_websocket_url(websocket_route.url),
+                            "method": "WEBSOCKET",
+                            "resource_type": "websocket",
+                            "reason": "websocket_blocked_for_passive_capture",
                         }
                     )
-                    route.abort("blockedbyclient")
-                    return
-                allowed, reason = _validate_browser_request(
-                    request.url,
-                    request.method,
-                    url_validator=url_validator,
-                )
-                if not allowed:
-                    append_blocked(
+                    websocket_route.close(code=1008, reason="Watch-Dawg passive capture")
+
+                context.route_web_socket("**/*", block_websocket)
+                page = context.new_page()
+                page.set_default_timeout(timeout_ms)
+                page.set_default_navigation_timeout(timeout_ms)
+
+                def handle_route(route: Any, request: Any) -> None:
+                    nonlocal request_count, request_budget_exceeded
+                    request_count += 1
+                    safe = _safe_url(request.url)
+                    if request_count > max_requests:
+                        request_budget_exceeded = True
+                        append_blocked(
+                            {
+                                "url": safe,
+                                "method": request.method,
+                                "resource_type": request.resource_type,
+                                "reason": "request_budget_exceeded",
+                            }
+                        )
+                        route.abort("blockedbyclient")
+                        return
+                    allowed, reason = _validate_browser_request(
+                        request.url,
+                        request.method,
+                        url_validator=url_validator,
+                    )
+                    if not allowed:
+                        append_blocked(
+                            {
+                                "url": safe,
+                                "method": request.method,
+                                "resource_type": request.resource_type,
+                                "reason": reason,
+                            }
+                        )
+                        route.abort("blockedbyclient")
+                        return
+                    route.continue_()
+
+                page.route("**/*", handle_route)
+
+                def on_console(message: Any) -> None:
+                    append_console(
                         {
-                            "url": safe,
-                            "method": request.method,
-                            "resource_type": request.resource_type,
-                            "reason": reason,
+                            "type": _bounded_text(message.type, 80),
+                            "text": _bounded_text(message.text),
                         }
                     )
-                    route.abort("blockedbyclient")
-                    return
-                route.continue_()
 
-            page.route("**/*", handle_route)
+                def on_page_error(error: Any) -> None:
+                    append_console(
+                        {
+                            "type": "pageerror",
+                            "text": _bounded_text(error),
+                        }
+                    )
 
-            def on_console(message: Any) -> None:
-                append_console(
-                    {
-                        "type": _bounded_text(message.type, 80),
-                        "text": _bounded_text(message.text),
-                    }
-                )
+                def on_response(response: Any) -> None:
+                    request = response.request
+                    try:
+                        headers = response.headers
+                    except PlaywrightError:
+                        headers = {}
+                    append_network(
+                        {
+                            "event": "response",
+                            "url": _safe_url(response.url),
+                            "method": request.method,
+                            "resource_type": request.resource_type,
+                            "status": response.status,
+                            "content_type": _bounded_text(headers.get("content-type", ""), 300),
+                        }
+                    )
 
-            def on_page_error(error: Any) -> None:
-                append_console(
-                    {
-                        "type": "pageerror",
-                        "text": _bounded_text(error),
-                    }
-                )
+                def on_request_failed(request: Any) -> None:
+                    append_network(
+                        {
+                            "event": "request_failed",
+                            "url": _safe_url(request.url),
+                            "method": request.method,
+                            "resource_type": request.resource_type,
+                            "failure": _bounded_text(request.failure or "unknown", 300),
+                        }
+                    )
 
-            def on_response(response: Any) -> None:
-                request = response.request
+                page.on("console", on_console)
+                page.on("pageerror", on_page_error)
+                page.on("response", on_response)
+                page.on("requestfailed", on_request_failed)
+
+                started = time.monotonic()
                 try:
-                    headers = response.headers
-                except PlaywrightError:
-                    headers = {}
-                append_network(
-                    {
-                        "event": "response",
-                        "url": _safe_url(response.url),
-                        "method": request.method,
-                        "resource_type": request.resource_type,
-                        "status": response.status,
-                        "content_type": _bounded_text(headers.get("content-type", ""), 300),
-                    }
-                )
+                    response = page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                except PlaywrightTimeoutError as exc:
+                    raise BrowserCaptureError("browser navigation timed out before DOMContentLoaded") from exc
+                if response is None:
+                    raise BrowserCaptureError("browser navigation produced no main-document response")
+                if settle_ms:
+                    page.wait_for_timeout(settle_ms)
+                elapsed_ms = round((time.monotonic() - started) * 1000, 1)
 
-            def on_request_failed(request: Any) -> None:
-                append_network(
-                    {
-                        "event": "request_failed",
-                        "url": _safe_url(request.url),
-                        "method": request.method,
-                        "resource_type": request.resource_type,
-                        "failure": _bounded_text(request.failure or "unknown", 300),
-                    }
-                )
-
-            page.on("console", on_console)
-            page.on("pageerror", on_page_error)
-            page.on("response", on_response)
-            page.on("requestfailed", on_request_failed)
-
-            started = time.monotonic()
-            try:
-                response = page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
-            except PlaywrightTimeoutError as exc:
-                raise BrowserCaptureError("browser navigation timed out before DOMContentLoaded") from exc
-            if response is None:
-                raise BrowserCaptureError("browser navigation produced no main-document response")
-            if settle_ms:
-                page.wait_for_timeout(settle_ms)
-            elapsed_ms = round((time.monotonic() - started) * 1000, 1)
-
-            final_url = _safe_url(page.url)
-            dom_text = page.content()
-            dom_bytes = dom_text.encode("utf-8")
-            if len(dom_bytes) > MAX_DOM_BYTES:
-                raise BrowserCaptureError(
-                    f"rendered DOM exceeds the {MAX_DOM_BYTES}-byte evidence limit"
-                )
-            screenshot = page.screenshot(full_page=False, type="png")
-            title = _bounded_text(page.title(), 1_000)
-            main_status = response.status
-            context.close()
-            browser.close()
+                final_url = _safe_url(page.url)
+                dom_text = page.content()
+                dom_bytes = dom_text.encode("utf-8")
+                if len(dom_bytes) > MAX_DOM_BYTES:
+                    raise BrowserCaptureError(
+                        f"rendered DOM exceeds the {MAX_DOM_BYTES}-byte evidence limit"
+                    )
+                screenshot = page.screenshot(full_page=False, type="png")
+                title = _bounded_text(page.title(), 1_000)
+                main_status = response.status
+                context.close()
+                browser.close()
+            egress_summary = egress_proxy.summary()
+            egress_attempts = egress_proxy.attempts
     except BrowserCaptureError:
         raise
     except PlaywrightError as exc:
@@ -295,6 +344,18 @@ def capture_browser_evidence(
         observed_at=observed_at,
         artifact_type="browser-console-events",
     )
+    egress_payload = {
+        "schema": EGRESS_POLICY_SCHEMA,
+        "summary": egress_summary,
+        "attempts": egress_attempts,
+    }
+    egress_artifact = store.put_bytes(
+        _canonical_json_bytes(egress_payload),
+        media_type="application/json",
+        source=final_url,
+        observed_at=observed_at,
+        artifact_type="browser-egress-policy-events",
+    )
     network_payload = {
         "schema": "watch-dawg-browser-network/v1",
         "events": network_events,
@@ -304,6 +365,7 @@ def capture_browser_evidence(
         "request_limit": max_requests,
         "request_budget_exceeded": request_budget_exceeded,
         "blocked_requests": blocked_requests,
+        "egress_policy_ref": egress_artifact["ref"],
     }
     network_artifact = store.put_bytes(
         _canonical_json_bytes(network_payload),
@@ -320,7 +382,18 @@ def capture_browser_evidence(
         "authenticated": False,
         "javascript_rendering": True,
         "service_workers": "blocked",
+        "websockets": "blocked_without_upstream_connection",
         "passive_methods_only": sorted(ALLOWED_PASSIVE_METHODS),
+        "browser_egress": {
+            "schema": EGRESS_POLICY_SCHEMA,
+            "mode": egress_summary["mode"],
+            "public_addresses_only": True,
+            "mixed_public_private_dns_answers": "deny",
+            "connect_to_validated_ip": True,
+            "proxy_bypass_loopback_disabled": True,
+            "quic_disabled": True,
+            "non_proxied_webrtc_udp_policy": "disabled",
+        },
         "viewport": viewport,
         "full_page_screenshot": False,
         "request_limit": max_requests,
@@ -346,6 +419,7 @@ def capture_browser_evidence(
             "screenshot": screenshot_artifact,
             "console": console_artifact,
             "network": network_artifact,
+            "egress": egress_artifact,
         },
     }
     capture_artifact = store.put_json(
@@ -359,6 +433,7 @@ def capture_browser_evidence(
         screenshot_artifact["ref"],
         console_artifact["ref"],
         network_artifact["ref"],
+        egress_artifact["ref"],
         capture_artifact["ref"],
     ]
     package_manifest = {
@@ -410,7 +485,8 @@ def verify_browser_package(evidence_root: str | Path, package_ref: str) -> dict[
         raise BrowserCaptureError("browser package and capture coverage do not match")
 
     artifacts = capture.get("artifacts")
-    if not isinstance(artifacts, dict) or set(artifacts) != {"rendered_dom", "screenshot", "console", "network"}:
+    expected_artifacts = {"rendered_dom", "screenshot", "console", "network", "egress"}
+    if not isinstance(artifacts, dict) or set(artifacts) != expected_artifacts:
         raise BrowserCaptureError("browser capture artifact map is incomplete")
     required_refs = {capture_ref}
     verified_refs = [package_ref]
@@ -448,9 +524,11 @@ def verify_browser_package(evidence_root: str | Path, package_ref: str) -> dict[
         "coverage": package.get("coverage"),
         "limitations": [
             "Browser evidence establishes integrity of captured artifacts, not the truth of a business claim.",
-            "The passive browser policy blocks non-public HTTP(S) targets and non-passive request methods.",
-            "The screenshot is viewport-bounded and the rendered DOM, console, network events, and request count are capped.",
+            "HTTP(S) browser traffic is forced through a loopback proxy that resolves once, rejects mixed/non-public DNS answers, and connects to the validated IP.",
+            "The Playwright route layer independently blocks non-public HTTP(S) targets and non-passive HTTP methods; WebSockets are closed without an upstream connection.",
+            "The screenshot is viewport-bounded and the rendered DOM, console, network events, egress decisions, and request count are capped.",
             "Network metadata does not preserve response bodies for subresources.",
+            "This process-level proxy is a browser egress choke point, not a host firewall or privileged network namespace.",
         ],
     }
 
