@@ -17,7 +17,7 @@ MAX_REQUEST_LINE_BYTES: Final[int] = 8_192
 MAX_RECORDED_ATTEMPTS: Final[int] = 200
 CONNECT_TIMEOUT_SECONDS: Final[float] = 10.0
 TUNNEL_IDLE_TIMEOUT_SECONDS: Final[float] = 30.0
-PASSIVE_HTTP_METHODS: Final[frozenset[str]] = frozenset({"GET", "HEAD", "OPTIONS"})
+PASSIVE_HTTP_METHODS: Final[frozenset[str]] = frozenset({"GET", "HEAD"})
 DEFAULT_WEB_PORTS: Final[frozenset[int]] = frozenset({80, 443})
 
 
@@ -35,7 +35,6 @@ class ResolvedEndpoint:
 
 
 def public_address_policy(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    """Return True only for globally routable addresses."""
     return bool(address.is_global)
 
 
@@ -90,8 +89,6 @@ def resolve_public_endpoints(
             )
         )
 
-    # Reject the whole hostname if DNS returns any non-public answer. Picking a
-    # public member from a mixed set would leave an SSRF ambiguity.
     if disallowed:
         raise BrowserEgressError("egress hostname resolved to at least one non-public address")
     if not endpoints:
@@ -244,13 +241,7 @@ class _ProxyHandler(socketserver.StreamRequestHandler):
     def _resolve(self, host: str, port: int, method: str) -> tuple[socket.socket, ResolvedEndpoint]:
         if port not in self.server.allowed_ports:
             reason = "egress port is outside the browser web-port allowlist"
-            self.server.record_attempt(
-                method=method,
-                host=host,
-                port=port,
-                allowed=False,
-                reason=reason,
-            )
+            self.server.record_attempt(method=method, host=host, port=port, allowed=False, reason=reason)
             raise BrowserEgressError(reason)
         try:
             endpoints = resolve_public_endpoints(
@@ -261,13 +252,7 @@ class _ProxyHandler(socketserver.StreamRequestHandler):
             )
             upstream, endpoint = _connect_first(endpoints, self.server.connect_timeout)
         except BrowserEgressError as exc:
-            self.server.record_attempt(
-                method=method,
-                host=host,
-                port=port,
-                allowed=False,
-                reason=str(exc),
-            )
+            self.server.record_attempt(method=method, host=host, port=port, allowed=False, reason=str(exc))
             raise
         self.server.record_attempt(
             method=method,
