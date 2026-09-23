@@ -73,7 +73,8 @@ class ProofPassReceiptTests(unittest.TestCase):
             self.assertEqual(receipt["schema"], "proofpass-receipt/v1")
             self.assertEqual(receipt["attestation"], "EVIDENCE_INTEGRITY")
             self.assertEqual(receipt["issuer"]["key_id"], generated["key_id"])
-            self.assertNotIn("truth", json.dumps(receipt).lower())
+            self.assertNotIn("truth", receipt)
+            self.assertTrue(any("not truth" in item for item in receipt["limitations"]))
 
             verified = verify_receipt(
                 evidence_root=store.root,
