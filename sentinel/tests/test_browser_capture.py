@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from sentinel.axe_adapter import verify_axe_analysis
 from sentinel.browser_capture import (
     BROWSER_PACKAGE_SCHEMA,
     BrowserCaptureError,
@@ -108,10 +109,11 @@ class _FixtureHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if self.path == "/":
             body = b"""<!doctype html>
-<html><head><title>Browser Evidence Fixture</title></head>
+<html lang=\"en\"><head><title>Browser Evidence Fixture</title></head>
 <body>
 <script src=\"/script.js\"></script>
 <p id=\"ready\">ready</p>
+<img src=\"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==\">
 </body></html>"""
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -145,7 +147,13 @@ class BrowserCaptureIntegrationTests(unittest.TestCase):
         thread.start()
         return server, thread
 
-    def _capture(self, root: Path, server: ThreadingHTTPServer) -> dict[str, object]:
+    def _capture(
+        self,
+        root: Path,
+        server: ThreadingHTTPServer,
+        *,
+        with_axe: bool = False,
+    ) -> dict[str, object]:
         url = f"http://127.0.0.1:{server.server_port}/"
 
         def local_fixture_proxy() -> BrowserEgressProxy:
@@ -154,12 +162,18 @@ class BrowserCaptureIntegrationTests(unittest.TestCase):
                 allowed_ports={server.server_port},
             )
 
+        axe_script: str | None = None
+        if with_axe:
+            axe_script = os.environ.get("WATCH_DAWG_AXE_SCRIPT")
+            self.assertTrue(axe_script, "WATCH_DAWG_AXE_SCRIPT must point to pinned axe.min.js")
+
         return capture_browser_evidence(
             evidence_root=root,
             url=url,
             target_id="browser-fixture",
             settle_ms=200,
             url_validator=lambda value: None,
+            axe_script_path=axe_script,
             _egress_proxy_factory=local_fixture_proxy,
         )
 
@@ -168,12 +182,12 @@ class BrowserCaptureIntegrationTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as directory:
                 root = Path(directory) / "evidence"
-                result = self._capture(root, server)
+                result = self._capture(root, server, with_axe=True)
                 self.assertEqual(result["schema"], BROWSER_PACKAGE_SCHEMA)
                 self.assertEqual(result["status"], "CAPTURED")
                 self.assertFalse(result["coverage"]["authenticated"])
                 self.assertTrue(result["coverage"]["javascript_rendering"])
-                self.assertTrue(result["coverage"]["passive_methods_only"])
+                self.assertEqual(result["coverage"]["passive_methods_only"], ["GET", "HEAD"])
                 self.assertEqual(
                     result["coverage"]["browser_egress"]["mode"],
                     "resolve_once_loopback_proxy",
@@ -220,6 +234,23 @@ class BrowserCaptureIntegrationTests(unittest.TestCase):
                 self.assertEqual(egress["summary"]["policy"]["allowed_tcp_ports"], [server.server_port])
                 self.assertFalse(egress["summary"]["policy"]["public_addresses_only"])
                 self.assertTrue(any(item.get("allowed") for item in egress["attempts"]))
+
+                axe_summary = result["derived_analyses"]["axe"]
+                self.assertEqual(axe_summary["engine_version"], "4.13.0")
+                self.assertGreaterEqual(axe_summary["counts"]["violation_rules"], 1)
+                axe_verification = verify_axe_analysis(root, str(axe_summary["analysis_ref"]))
+                self.assertEqual(axe_verification["status"], "VERIFIED_AXE_ANALYSIS")
+                self.assertEqual(
+                    axe_verification["browser_evidence_status"],
+                    "VERIFIED_BROWSER_EVIDENCE",
+                )
+                axe_analysis = read_verified_json(root, str(axe_summary["analysis_ref"]))
+                violation_ids = {item["id"] for item in axe_analysis["violations"]}
+                self.assertIn("image-alt", violation_ids)
+                self.assertEqual(
+                    axe_analysis["options"]["additional_network_requests_expected"],
+                    0,
+                )
         finally:
             server.shutdown()
             server.server_close()
