@@ -15,7 +15,13 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
+from .browser_capture import (
+    BROWSER_PACKAGE_SCHEMA,
+    BrowserCaptureError,
+    verify_browser_package,
+)
 from .evidence_verify import (
+    PACKAGE_SCHEMA,
     PackageVerificationError,
     read_verified_json,
     verify_package,
@@ -26,6 +32,12 @@ RECEIPT_SCHEMA: Final[str] = "proofpass-receipt/v1"
 VERIFICATION_SCHEMA: Final[str] = "proofpass-receipt-verification/v1"
 SIGNATURE_ALGORITHM: Final[str] = "Ed25519"
 SIGNING_DOMAIN: Final[bytes] = b"proofpass-receipt-v1\0"
+HTTP_SUBJECT_TYPE: Final[str] = "watch-dawg-website-evidence-package"
+BROWSER_SUBJECT_TYPE: Final[str] = "watch-dawg-browser-evidence-package"
+SUBJECT_TYPES: Final[frozenset[str]] = frozenset({HTTP_SUBJECT_TYPE, BROWSER_SUBJECT_TYPE})
+EVIDENCE_STATUSES: Final[frozenset[str]] = frozenset(
+    {"VERIFIED_INTEGRITY", "VERIFIED_BROWSER_EVIDENCE"}
+)
 MAX_KEY_FILE_BYTES: Final[int] = 16_384
 MAX_RECEIPT_BYTES: Final[int] = 128_000
 RECEIPT_FIELDS: Final[frozenset[str]] = frozenset(
@@ -219,6 +231,36 @@ def _receipt_id_for(unsigned_without_id: Mapping[str, Any]) -> str:
     return f"pp1-{digest[:32]}"
 
 
+def _verified_subject(
+    evidence_root: str | Path,
+    package_ref: str,
+) -> tuple[str, dict[str, Any], dict[str, Any]]:
+    root = Path(evidence_root)
+    try:
+        package = read_verified_json(root, package_ref)
+    except PackageVerificationError as exc:
+        raise ProofPassError(f"evidence package failed integrity verification: {exc}") from exc
+
+    schema = package.get("schema")
+    if schema == PACKAGE_SCHEMA:
+        try:
+            verification = verify_package(root, package_ref)
+            capture = read_verified_json(root, verification["capture_ref"])
+        except PackageVerificationError as exc:
+            raise ProofPassError(f"evidence package failed integrity verification: {exc}") from exc
+        return HTTP_SUBJECT_TYPE, verification, capture
+
+    if schema == BROWSER_PACKAGE_SCHEMA:
+        try:
+            verification = verify_browser_package(root, package_ref)
+            capture = read_verified_json(root, verification["capture_ref"])
+        except (BrowserCaptureError, PackageVerificationError) as exc:
+            raise ProofPassError(f"browser evidence package failed verification: {exc}") from exc
+        return BROWSER_SUBJECT_TYPE, verification, capture
+
+    raise ProofPassError("unsupported evidence package schema for ProofPass v1")
+
+
 def issue_receipt(
     *,
     evidence_root: str | Path,
@@ -231,13 +273,7 @@ def issue_receipt(
         raise ProofPassError("issuer_id must be non-empty text no longer than 200 characters")
     issuer_id = issuer_id.strip()
 
-    try:
-        verification = verify_package(evidence_root, package_ref)
-        package = read_verified_json(Path(evidence_root), package_ref)
-        capture_ref = verification["capture_ref"]
-        capture = read_verified_json(Path(evidence_root), capture_ref)
-    except PackageVerificationError as exc:
-        raise ProofPassError(f"evidence package failed integrity verification: {exc}") from exc
+    subject_type, verification, capture = _verified_subject(evidence_root, package_ref)
 
     timestamp = issued_at or utc_now_iso()
     try:
@@ -250,6 +286,10 @@ def issue_receipt(
 
     public_key = private_key.public_key()
     key_id = _public_key_id(public_key)
+    evidence_status = verification.get("status")
+    if evidence_status not in EVIDENCE_STATUSES:
+        raise ProofPassError("evidence verifier returned an unsupported status")
+
     core: dict[str, Any] = {
         "schema": RECEIPT_SCHEMA,
         "attestation": "EVIDENCE_INTEGRITY",
@@ -258,7 +298,7 @@ def issue_receipt(
             "key_id": key_id,
         },
         "subject": {
-            "type": "watch-dawg-website-evidence-package",
+            "type": subject_type,
             "package_ref": package_ref,
             "target_id": verification.get("target_id"),
             "source": capture.get("final_url"),
@@ -266,7 +306,7 @@ def issue_receipt(
         },
         "coverage": verification.get("coverage"),
         "evidence": {
-            "status": "VERIFIED_INTEGRITY",
+            "status": evidence_status,
             "verified_refs": verification.get("verified_refs", []),
         },
         "issued_at": timestamp,
@@ -310,14 +350,14 @@ def _validate_receipt_shape(receipt: Mapping[str, Any]) -> None:
     expected_subject = {"type", "package_ref", "target_id", "source", "observed_at"}
     if not isinstance(subject, dict) or set(subject) != expected_subject:
         raise ProofPassError("invalid receipt subject")
-    if subject.get("type") != "watch-dawg-website-evidence-package":
+    if subject.get("type") not in SUBJECT_TYPES:
         raise ProofPassError("unsupported receipt subject type")
     if not isinstance(subject.get("package_ref"), str):
         raise ProofPassError("receipt package_ref is missing")
     evidence = receipt.get("evidence")
     if not isinstance(evidence, dict) or set(evidence) != {"status", "verified_refs"}:
         raise ProofPassError("invalid receipt evidence object")
-    if evidence.get("status") != "VERIFIED_INTEGRITY" or not isinstance(evidence.get("verified_refs"), list):
+    if evidence.get("status") not in EVIDENCE_STATUSES or not isinstance(evidence.get("verified_refs"), list):
         raise ProofPassError("receipt evidence status or references are invalid")
     if not isinstance(receipt.get("coverage"), dict):
         raise ProofPassError("receipt coverage must be an object")
@@ -365,12 +405,12 @@ def verify_receipt(
         raise ProofPassError("receipt_id does not match the signed receipt content")
 
     subject = receipt["subject"]
-    try:
-        verification = verify_package(evidence_root, subject["package_ref"])
-        capture = read_verified_json(Path(evidence_root), verification["capture_ref"])
-    except PackageVerificationError as exc:
-        raise ProofPassError(f"referenced evidence package failed verification: {exc}") from exc
-
+    subject_type, verification, capture = _verified_subject(
+        evidence_root,
+        subject["package_ref"],
+    )
+    if subject.get("type") != subject_type:
+        raise ProofPassError("receipt subject type does not match the evidence package schema")
     if subject.get("target_id") != verification.get("target_id"):
         raise ProofPassError("receipt target_id does not match the evidence package")
     if subject.get("observed_at") != verification.get("observed_at"):
@@ -379,6 +419,8 @@ def verify_receipt(
         raise ProofPassError("receipt source does not match the evidence capture")
     if receipt.get("coverage") != verification.get("coverage"):
         raise ProofPassError("receipt coverage does not match the evidence package")
+    if receipt["evidence"].get("status") != verification.get("status"):
+        raise ProofPassError("receipt evidence status does not match independent verification")
     if receipt["evidence"].get("verified_refs") != verification.get("verified_refs"):
         raise ProofPassError("receipt evidence references do not match independently verified artifacts")
 
@@ -387,6 +429,7 @@ def verify_receipt(
         "status": "VERIFIED_RECEIPT",
         "receipt_id": receipt_id,
         "attestation": receipt.get("attestation"),
+        "subject_type": subject_type,
         "issuer_id": receipt["issuer"]["id"],
         "issuer_key_id": supplied_key_id,
         "trusted_public_key_matched": True,
@@ -462,6 +505,7 @@ def main() -> int:
             result = {
                 "status": "RECEIPT_ISSUED",
                 "receipt_id": receipt["receipt_id"],
+                "subject_type": receipt["subject"]["type"],
                 "package_ref": receipt["subject"]["package_ref"],
                 "issuer_key_id": receipt["issuer"]["key_id"],
                 "receipt_path": str(args.out),
