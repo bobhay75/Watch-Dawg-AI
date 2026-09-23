@@ -18,6 +18,7 @@ MAX_RECORDED_ATTEMPTS: Final[int] = 200
 CONNECT_TIMEOUT_SECONDS: Final[float] = 10.0
 TUNNEL_IDLE_TIMEOUT_SECONDS: Final[float] = 30.0
 PASSIVE_HTTP_METHODS: Final[frozenset[str]] = frozenset({"GET", "HEAD", "OPTIONS"})
+DEFAULT_WEB_PORTS: Final[frozenset[int]] = frozenset({80, 443})
 
 
 class BrowserEgressError(RuntimeError):
@@ -34,13 +35,7 @@ class ResolvedEndpoint:
 
 
 def public_address_policy(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    """Return True only for globally routable addresses.
-
-    Python's ``is_global`` excludes private, loopback, link-local, reserved,
-    unspecified, multicast, documentation, and other non-public ranges. The
-    policy intentionally rejects a hostname if *any* returned address is not
-    public instead of choosing a convenient public answer from a mixed set.
-    """
+    """Return True only for globally routable addresses."""
     return bool(address.is_global)
 
 
@@ -75,8 +70,7 @@ def resolve_public_endpoints(
         if family not in {socket.AF_INET, socket.AF_INET6} or socktype != socket.SOCK_STREAM:
             continue
         try:
-            address_text = str(sockaddr[0])
-            parsed = ipaddress.ip_address(address_text)
+            parsed = ipaddress.ip_address(str(sockaddr[0]))
         except (IndexError, TypeError, ValueError) as exc:
             raise BrowserEgressError("egress resolver returned an invalid IP address") from exc
         if not address_policy(parsed):
@@ -96,6 +90,8 @@ def resolve_public_endpoints(
             )
         )
 
+    # Reject the whole hostname if DNS returns any non-public answer. Picking a
+    # public member from a mixed set would leave an SSRF ambiguity.
     if disallowed:
         raise BrowserEgressError("egress hostname resolved to at least one non-public address")
     if not endpoints:
@@ -203,7 +199,7 @@ class _ProxyHandler(socketserver.StreamRequestHandler):
     def _send_error(self, status: int, message: str) -> None:
         body = f"Watch-Dawg browser egress denied: {message}\n".encode("utf-8")
         response = (
-            f"HTTP/1.1 {status} Forbidden\r\n"
+            f"HTTP/1.1 {status} Denied\r\n"
             f"Content-Type: text/plain; charset=utf-8\r\n"
             f"Content-Length: {len(body)}\r\n"
             "Connection: close\r\n\r\n"
@@ -232,7 +228,13 @@ class _ProxyHandler(socketserver.StreamRequestHandler):
             elif method in PASSIVE_HTTP_METHODS:
                 self._handle_http(method, target, headers)
             else:
-                self.server.record_attempt(method=method, host="<unknown>", port=0, allowed=False, reason="non_passive_method")
+                self.server.record_attempt(
+                    method=method,
+                    host="<unknown>",
+                    port=0,
+                    allowed=False,
+                    reason="non_passive_method",
+                )
                 raise BrowserEgressError("proxy permits only passive HTTP methods")
         except BrowserEgressError as exc:
             self._send_error(403, str(exc))
@@ -240,6 +242,16 @@ class _ProxyHandler(socketserver.StreamRequestHandler):
             self._send_error(502, "public upstream connection failed")
 
     def _resolve(self, host: str, port: int, method: str) -> tuple[socket.socket, ResolvedEndpoint]:
+        if port not in self.server.allowed_ports:
+            reason = "egress port is outside the browser web-port allowlist"
+            self.server.record_attempt(
+                method=method,
+                host=host,
+                port=port,
+                allowed=False,
+                reason=reason,
+            )
+            raise BrowserEgressError(reason)
         try:
             endpoints = resolve_public_endpoints(
                 host,
@@ -249,7 +261,13 @@ class _ProxyHandler(socketserver.StreamRequestHandler):
             )
             upstream, endpoint = _connect_first(endpoints, self.server.connect_timeout)
         except BrowserEgressError as exc:
-            self.server.record_attempt(method=method, host=host, port=port, allowed=False, reason=str(exc))
+            self.server.record_attempt(
+                method=method,
+                host=host,
+                port=port,
+                allowed=False,
+                reason=str(exc),
+            )
             raise
         self.server.record_attempt(
             method=method,
@@ -314,25 +332,24 @@ class _ProxyHandler(socketserver.StreamRequestHandler):
 
 
 class BrowserEgressProxy:
-    """Loopback-only HTTP proxy that resolves once and connects to validated IPs.
-
-    Chromium receives hostnames, but this proxy performs the network resolution,
-    rejects mixed/non-public answer sets, and connects directly to the chosen
-    validated IP. That avoids a second hostname lookup between policy validation
-    and TCP connect. A test may inject a private-address policy, but the browser
-    capture CLI/API never exposes such an override.
-    """
+    """Loopback-only proxy that resolves once and connects to validated IPs."""
 
     def __init__(
         self,
         *,
         resolver: Callable[..., Iterable[tuple[Any, ...]]] = socket.getaddrinfo,
         address_policy: Callable[[ipaddress.IPv4Address | ipaddress.IPv6Address], bool] = public_address_policy,
+        allowed_ports: Iterable[int] = DEFAULT_WEB_PORTS,
         connect_timeout: float = CONNECT_TIMEOUT_SECONDS,
         tunnel_idle_timeout: float = TUNNEL_IDLE_TIMEOUT_SECONDS,
     ) -> None:
+        normalized_ports = frozenset(int(port) for port in allowed_ports)
+        if not normalized_ports or len(normalized_ports) > 8 or any(port < 1 or port > 65535 for port in normalized_ports):
+            raise BrowserEgressError("browser egress port allowlist is invalid")
         self._resolver = resolver
         self._address_policy = address_policy
+        self._public_only_policy = address_policy is public_address_policy
+        self._allowed_ports = normalized_ports
         self._connect_timeout = min(max(float(connect_timeout), 1.0), 30.0)
         self._tunnel_idle_timeout = min(max(float(tunnel_idle_timeout), 5.0), 120.0)
         self._server: _ThreadingProxyServer | None = None
@@ -346,11 +363,16 @@ class BrowserEgressProxy:
         server = _ThreadingProxyServer(("127.0.0.1", 0), _ProxyHandler)
         server.resolver = self._resolver
         server.address_policy = self._address_policy
+        server.allowed_ports = self._allowed_ports
         server.connect_timeout = self._connect_timeout
         server.tunnel_idle_timeout = self._tunnel_idle_timeout
         server.record_attempt = self._record_attempt
         self._server = server
-        self._thread = threading.Thread(target=server.serve_forever, name="watch-dawg-browser-egress", daemon=True)
+        self._thread = threading.Thread(
+            target=server.serve_forever,
+            name="watch-dawg-browser-egress",
+            daemon=True,
+        )
         self._thread.start()
         return self
 
@@ -403,9 +425,10 @@ class BrowserEgressProxy:
             "blocked_attempts": sum(not bool(item.get("allowed")) for item in attempts),
             "attempt_limit": MAX_RECORDED_ATTEMPTS,
             "policy": {
-                "public_addresses_only": True,
+                "public_addresses_only": self._public_only_policy,
                 "mixed_public_private_dns_answers": "deny",
                 "connect_to_validated_ip": True,
+                "allowed_tcp_ports": sorted(self._allowed_ports),
                 "passive_plain_http_methods": sorted(PASSIVE_HTTP_METHODS),
                 "loopback_listener_only": True,
             },
