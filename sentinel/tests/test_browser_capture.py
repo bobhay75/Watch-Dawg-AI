@@ -79,9 +79,29 @@ class BrowserRequestPolicyTests(unittest.TestCase):
                     b"Connection: close\r\n\r\n"
                 )
                 response = client.recv(4096)
-            self.assertIn(b"403 Forbidden", response)
+            self.assertIn(b"403 Denied", response)
             self.assertTrue(proxy.attempts)
             self.assertFalse(proxy.attempts[0]["allowed"])
+
+    def test_proxy_rejects_non_web_port_before_resolution(self) -> None:
+        resolver_called = False
+
+        def resolver(host: str, port: int, *, type: int) -> list[tuple[object, ...]]:
+            nonlocal resolver_called
+            resolver_called = True
+            return []
+
+        with BrowserEgressProxy(resolver=resolver) as proxy:
+            parsed = urlsplit(proxy.server_url)
+            with socket.create_connection((str(parsed.hostname), int(parsed.port)), timeout=2) as client:
+                client.sendall(
+                    b"CONNECT example.com:22 HTTP/1.1\r\n"
+                    b"Host: example.com:22\r\n"
+                    b"Connection: close\r\n\r\n"
+                )
+                response = client.recv(4096)
+        self.assertIn(b"403 Denied", response)
+        self.assertFalse(resolver_called)
 
 
 class _FixtureHandler(BaseHTTPRequestHandler):
@@ -114,12 +134,6 @@ class _FixtureHandler(BaseHTTPRequestHandler):
         return
 
 
-def _loopback_test_proxy() -> BrowserEgressProxy:
-    # Integration tests use an isolated local fixture. This override is supplied
-    # only through the private test hook; browser capture CLI/API do not expose it.
-    return BrowserEgressProxy(address_policy=lambda address: True)
-
-
 @unittest.skipUnless(
     os.environ.get("WATCH_DAWG_BROWSER_TESTS") == "1",
     "browser integration tests require pinned Playwright + Chromium",
@@ -133,13 +147,20 @@ class BrowserCaptureIntegrationTests(unittest.TestCase):
 
     def _capture(self, root: Path, server: ThreadingHTTPServer) -> dict[str, object]:
         url = f"http://127.0.0.1:{server.server_port}/"
+
+        def local_fixture_proxy() -> BrowserEgressProxy:
+            return BrowserEgressProxy(
+                address_policy=lambda address: True,
+                allowed_ports={server.server_port},
+            )
+
         return capture_browser_evidence(
             evidence_root=root,
             url=url,
             target_id="browser-fixture",
             settle_ms=200,
             url_validator=lambda value: None,
-            _egress_proxy_factory=_loopback_test_proxy,
+            _egress_proxy_factory=local_fixture_proxy,
         )
 
     def test_real_chromium_capture_is_content_addressed_and_verifiable(self) -> None:
@@ -196,6 +217,8 @@ class BrowserCaptureIntegrationTests(unittest.TestCase):
                 )
                 self.assertEqual(egress["summary"]["mode"], "resolve_once_loopback_proxy")
                 self.assertGreaterEqual(egress["summary"]["allowed_attempts"], 1)
+                self.assertEqual(egress["summary"]["policy"]["allowed_tcp_ports"], [server.server_port])
+                self.assertFalse(egress["summary"]["policy"]["public_addresses_only"])
                 self.assertTrue(any(item.get("allowed") for item in egress["attempts"]))
         finally:
             server.shutdown()
