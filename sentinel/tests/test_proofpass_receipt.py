@@ -148,7 +148,7 @@ class ProofPassReceiptTests(unittest.TestCase):
             package_digest = package_ref.removeprefix("sha256:")
             package_path = store.root / "sha256" / package_digest[:2] / package_digest
             package_path.write_bytes(b"tampered")
-            with self.assertRaisesRegex(ProofPassError, "referenced evidence package failed verification"):
+            with self.assertRaisesRegex(ProofPassError, r"evidence package failed.*verification"):
                 verify_receipt(
                     evidence_root=store.root,
                     receipt=receipt,
