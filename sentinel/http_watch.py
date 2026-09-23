@@ -250,12 +250,29 @@ class HttpWatchPack:
                     observed_at=observed_at,
                     artifact_type="http-capture-manifest",
                 )
+                package_manifest = {
+                    "schema": "watch-dawg-evidence-package/v1",
+                    "target_id": target_id,
+                    "observed_at": observed_at,
+                    "capture_ref": capture_artifact["ref"],
+                    "artifact_refs": [body_artifact["ref"], capture_artifact["ref"]],
+                    "coverage": coverage,
+                }
+                package_artifact = self.evidence_store.put_json(
+                    package_manifest,
+                    source=facts["final_url"],
+                    observed_at=observed_at,
+                    artifact_type="evidence-package-manifest",
+                )
                 facts["evidence_package"] = {
                     "schema": "watch-dawg-evidence-package/v1",
+                    "package_ref": package_artifact["ref"],
                     "capture_ref": capture_artifact["ref"],
-                    "artifacts": [body_artifact, capture_artifact],
+                    "artifacts": [body_artifact, capture_artifact, package_artifact],
                 }
-                evidence.extend([capture_artifact["ref"], body_artifact["ref"]])
+                evidence.extend(
+                    [package_artifact["ref"], capture_artifact["ref"], body_artifact["ref"]]
+                )
             return Observation(
                 target_id=target_id,
                 kind=self.kind,
