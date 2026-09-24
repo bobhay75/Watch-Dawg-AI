@@ -22,30 +22,13 @@ jobs:
           set -euo pipefail
           mkdir -p live-ui
           base='https://watch-dawg.emergent.host'
-          curl --fail --silent --show-error --location "$base/" -o live-ui/index.html
-          python - <<'PY'
-          from pathlib import Path
-          import re, urllib.parse, urllib.request
-
-          base = 'https://watch-dawg.emergent.host/'
-          html = Path('live-ui/index.html').read_text(encoding='utf-8', errors='replace')
-          refs = []
-          for raw in re.findall(r'''(?:src|href)=["']([^"']+)["']''', html, flags=re.I):
-              url = urllib.parse.urljoin(base, raw)
-              if urllib.parse.urlparse(url).netloc == urllib.parse.urlparse(base).netloc:
-                  refs.append(url)
-          for url in sorted(set(refs)):
-              path = urllib.parse.urlparse(url).path
-              name = path.rsplit('/', 1)[-1] or 'index.html'
-              if not re.fullmatch(r'[A-Za-z0-9._-]{1,128}', name):
-                  continue
-              try:
-                  with urllib.request.urlopen(url, timeout=15) as response:
-                      data = response.read(2_000_000)
-                  Path('live-ui', name).write_bytes(data)
-              except Exception as exc:
-                  Path('live-ui', name + '.error.txt').write_text(type(exc).__name__ + ': ' + str(exc))
-          PY
+          for path in / /app.js /styles.css /favicon.svg; do
+            name="${path##*/}"
+            [[ -n "$name" ]] || name='index.html'
+            curl --fail --silent --show-error --location \
+              --user-agent 'Mozilla/5.0 Watch-Dawg-owner-diagnostic/1.0' \
+              "$base$path" -o "live-ui/$name"
+          done
           python - <<'PY' > live-ui/button-scan.txt
           from pathlib import Path
           import re
@@ -56,11 +39,11 @@ jobs:
               matches = []
               for pattern in [r'(?i)start conversation', r'(?i)>\s*start\s*<', r'(?i)\bstart\b', r'(?i)conversation']:
                   for match in re.finditer(pattern, text):
-                      lo=max(0,match.start()-220); hi=min(len(text),match.end()+420)
+                      lo=max(0,match.start()-300); hi=min(len(text),match.end()+700)
                       matches.append(text[lo:hi].replace('\n',' '))
               if matches:
                   print(f'### {path.name}')
-                  for item in matches[:20]:
+                  for item in matches[:30]:
                       print(item)
                       print('---')
           PY
