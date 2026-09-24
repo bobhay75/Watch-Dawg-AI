@@ -8,6 +8,8 @@ on:
       - "sentinel/browser_egress.py"
       - "sentinel/axe_adapter.py"
       - "sentinel/website_audit_bundle.py"
+      - "sentinel/site_audit.py"
+      - "sentinel/tests/test_site_audit.py"
       - "sentinel/browser/**"
       - "sentinel/audit_tools/**"
 
@@ -17,7 +19,7 @@ permissions:
 jobs:
   authorized-pilot:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -33,74 +35,66 @@ jobs:
           npm ci --ignore-scripts --no-audit --no-fund --prefix sentinel/audit_tools
           python -m playwright install --with-deps chromium
 
-      - name: Capture owner-authorized passive evidence
+      - name: Verify multi-page policy classification tests
+        run: python -m unittest sentinel.tests.test_site_audit -v
+
+      - name: Run owner-authorized bounded multi-page audit
+        id: site_audit
+        shell: bash
         run: |
-          mkdir -p .pilot/evidence
-          python -m sentinel.browser_capture capture \
+          mkdir -p .pilot/evidence .pilot/site-audit
+          set +e
+          python -m sentinel.site_audit \
+            --site-id bobsome1.com-owner-authorized \
             --evidence-root .pilot/evidence \
-            --target-id bobsome1.com-owner-authorized \
-            --url https://bobsome1.com/ \
+            --export .pilot/site-audit \
             --axe-script sentinel/audit_tools/node_modules/axe-core/axe.min.js \
-            > .pilot/capture.json
-          cat .pilot/capture.json
-
-      - name: Extract evidence references
-        id: refs
-        run: |
-          python - <<'PY' >> "$GITHUB_OUTPUT"
-          import json
-          from pathlib import Path
-          result = json.loads(Path('.pilot/capture.json').read_text())
-          if result.get('status') != 'CAPTURED':
-              raise SystemExit('capture did not complete')
-          package_ref = result['package_ref']
-          axe = result.get('derived_analyses', {}).get('axe')
-          if not axe or not axe.get('analysis_ref'):
-              raise SystemExit('axe analysis reference missing')
-          print(f"package_ref={package_ref}")
-          print(f"axe_ref={axe['analysis_ref']}")
-          PY
-
-      - name: Independently verify browser evidence
-        run: |
-          python -m sentinel.browser_capture verify \
-            --evidence-root .pilot/evidence \
-            --package-ref '${{ steps.refs.outputs.package_ref }}' \
-            | tee .pilot/browser-verification.json
-
-      - name: Independently verify axe analysis
-        run: |
-          python - <<'PY' | tee .pilot/axe-verification.json
-          import json
-          from sentinel.axe_adapter import verify_axe_analysis
-          result = verify_axe_analysis('.pilot/evidence', '${{ steps.refs.outputs.axe_ref }}')
-          print(json.dumps(result, indent=2, sort_keys=True))
-          if result.get('status') != 'VERIFIED_AXE_ANALYSIS':
-              raise SystemExit('axe verification failed')
-          PY
-
-      - name: Build human-reviewable audit packet
-        run: |
-          python -m sentinel.website_audit_bundle \
-            --evidence-root .pilot/evidence \
-            --browser-package-ref '${{ steps.refs.outputs.package_ref }}' \
-            --axe-analysis-ref '${{ steps.refs.outputs.axe_ref }}' \
-            --export .pilot/audit \
-            | tee .pilot/audit-export.json
-          cat .pilot/audit/AUDIT.md >> "$GITHUB_STEP_SUMMARY"
+            --url https://bobsome1.com/ \
+            --url https://bobsome1.com/book/read/ \
+            --url https://bobsome1.com/book/ \
+            --url https://bobsome1.com/truth/today.php \
+            --url https://bobsome1.com/book/timeline.html \
+            --url https://bobsome1.com/book/research.html \
+            --url https://bobsome1.com/book/updates.html \
+            --url https://bobsome1.com/unveiled/ \
+            --url https://bobsome1.com/services/ \
+            --url https://bobsome1.com/store/ \
+            --url https://bobsome1.com/book/reviews.html \
+            --url https://bobsome1.com/book/read/support-right-hand.html \
+            | tee .pilot/site-run.json
+          rc=${PIPESTATUS[0]}
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+          if [[ -f .pilot/site-audit/SITE_AUDIT.md ]]; then
+            cat .pilot/site-audit/SITE_AUDIT.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0
 
       - name: Verify supply-chain pins
         run: python scripts/verify_supply_chain.py
 
-      - name: Upload owner-authorized pilot packet
+      - name: Upload owner-authorized site audit packet
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: bobsome1-watch-dawg-pilot-audit
+          name: bobsome1-watch-dawg-site-audit
           path: |
-            .pilot/audit
-            .pilot/capture.json
-            .pilot/browser-verification.json
-            .pilot/axe-verification.json
-            .pilot/audit-export.json
+            .pilot/site-audit
+            .pilot/site-run.json
           if-no-files-found: error
           retention-days: 7
+
+      - name: Enforce complete scoped coverage
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report_path = Path('.pilot/site-audit/SITE_AUDIT.json')
+          if not report_path.is_file():
+              raise SystemExit('site audit report was not produced')
+          report = json.loads(report_path.read_text())
+          status = report.get('status')
+          print(f"site audit status: {status}")
+          print(f"completed pages: {report.get('scope', {}).get('completed_page_count')}")
+          print(f"failed pages: {report.get('scope', {}).get('failed_page_count')}")
+          if status != 'SITE_REVIEW_READY':
+              raise SystemExit('bounded site audit did not complete every explicitly scoped page')
+          PY
