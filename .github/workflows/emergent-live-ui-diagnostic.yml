@@ -1,0 +1,74 @@
+name: Inspect Emergent live UI
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/emergent-live-ui-diagnostic.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-live-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Capture current live shell and assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p live-ui
+          base='https://watch-dawg.emergent.host'
+          curl --fail --silent --show-error --location "$base/" -o live-ui/index.html
+          python - <<'PY'
+          from pathlib import Path
+          import re, urllib.parse, urllib.request
+
+          base = 'https://watch-dawg.emergent.host/'
+          html = Path('live-ui/index.html').read_text(encoding='utf-8', errors='replace')
+          refs = []
+          for raw in re.findall(r'''(?:src|href)=["']([^"']+)["']''', html, flags=re.I):
+              url = urllib.parse.urljoin(base, raw)
+              if urllib.parse.urlparse(url).netloc == urllib.parse.urlparse(base).netloc:
+                  refs.append(url)
+          for url in sorted(set(refs)):
+              path = urllib.parse.urlparse(url).path
+              name = path.rsplit('/', 1)[-1] or 'index.html'
+              if not re.fullmatch(r'[A-Za-z0-9._-]{1,128}', name):
+                  continue
+              try:
+                  with urllib.request.urlopen(url, timeout=15) as response:
+                      data = response.read(2_000_000)
+                  Path('live-ui', name).write_bytes(data)
+              except Exception as exc:
+                  Path('live-ui', name + '.error.txt').write_text(type(exc).__name__ + ': ' + str(exc))
+          PY
+          python - <<'PY' > live-ui/button-scan.txt
+          from pathlib import Path
+          import re
+          for path in sorted(Path('live-ui').iterdir()):
+              if not path.is_file():
+                  continue
+              text = path.read_text(encoding='utf-8', errors='replace')
+              matches = []
+              for pattern in [r'(?i)start conversation', r'(?i)>\s*start\s*<', r'(?i)\bstart\b', r'(?i)conversation']:
+                  for match in re.finditer(pattern, text):
+                      lo=max(0,match.start()-220); hi=min(len(text),match.end()+420)
+                      matches.append(text[lo:hi].replace('\n',' '))
+              if matches:
+                  print(f'### {path.name}')
+                  for item in matches[:20]:
+                      print(item)
+                      print('---')
+          PY
+          cat live-ui/button-scan.txt >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload live UI evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: emergent-live-ui-diagnostic
+          path: live-ui
+          if-no-files-found: error
+          retention-days: 3
