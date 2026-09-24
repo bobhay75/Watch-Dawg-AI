@@ -44,6 +44,13 @@ public final class CollectionJobService extends JobService {
                     } catch (Exception ignored) {
                         // A later job retries. No sensitive device data or credentials
                         // are logged.
+                    }
+                    try {
+                        // Phone Guard is a separate local owner-baseline check. Run it even if
+                        // signed collection failed so security monitoring is not coupled to sync.
+                        PhoneGuard.scanAndNotify(getApplicationContext());
+                    } catch (RuntimeException ignored) {
+                        // A later periodic run retries; do not log package names.
                     } finally {
                         finishIfActive(run);
                     }

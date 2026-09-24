@@ -10,8 +10,8 @@ android {
         applicationId = "com.bobsome1.watchdawg.sensor"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.1.1-galaxy"
+        versionCode = 3
+        versionName = "0.2.0-phone-guard"
 
         testInstrumentationRunner = "android.app.InstrumentationTestRunner"
     }

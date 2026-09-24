@@ -1,12 +1,15 @@
 package com.bobsome1.watchdawg.sensor;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.text.Editable;
@@ -28,9 +31,10 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** Visible control plane for owner-authorized collection, export, and sync. */
+/** Visible control plane for owner-authorized collection, export, sync, and Phone Guard. */
 public final class MainActivity extends Activity {
     private static final int CREATE_DOCUMENT_REQUEST = 901;
+    private static final int NOTIFICATION_PERMISSION_REQUEST = 902;
     private static final String USAGE_ACCESS_HELP =
             "Galaxy setup: Android's normal Permissions page can say no permissions are allowed; "
                     + "that is expected because Usage Access is under Special app access. If Android "
@@ -50,6 +54,7 @@ public final class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         setContentView(buildUi());
+        PhoneGuardNotifications.ensureChannel(this);
         refreshStatus("Ready. No scan has been started by this screen.");
     }
 
@@ -109,8 +114,9 @@ public final class MainActivity extends Activity {
                 "Collecting device evidence…",
                 () -> {
                     String envelope = SignedSnapshotStore.collectAndSave(getApplicationContext());
+                    PhoneGuard.ScanResult guard = PhoneGuard.scanAndNotify(getApplicationContext());
                     return "Signed snapshot created (" + envelope.getBytes(StandardCharsets.UTF_8).length
-                            + " bytes).";
+                            + " bytes). " + guard.summary();
                 })));
         content.addView(button("Export latest signed snapshot", view -> prepareSnapshotExport()));
         content.addView(button("Export enrollment public key", view -> prepareEnrollmentExport()));
@@ -130,6 +136,46 @@ public final class MainActivity extends Activity {
             } catch (RuntimeException error) {
                 refreshStatus(errorMessage(error));
             }
+        }));
+
+        TextView guardTitle = new TextView(this);
+        guardTitle.setText("Phone Guard");
+        guardTitle.setTextSize(20f);
+        guardTitle.setPadding(0, dp(20), 0, dp(4));
+        content.addView(guardTitle);
+
+        TextView guardDisclosure = new TextView(this);
+        guardDisclosure.setText(
+                "Phone Guard trusts the apps present when you arm it, then flags packages outside that owner-approved baseline. "
+                        + "Remove any unwanted apps before arming. Android does not let an ordinary non-root app veto every OEM or carrier install, "
+                        + "so this mode detects on Watch-Dawg's scheduled checks instead of claiming impossible hard blocking. Raw package and installer names stay local unless you explicitly export the incident evidence.");
+        guardDisclosure.setTextSize(15f);
+        guardDisclosure.setPadding(0, 0, 0, dp(8));
+        content.addView(guardDisclosure);
+
+        content.addView(button("Arm Phone Guard — trust apps currently installed", view -> runAsync(
+                "Creating owner-approved app baseline…",
+                () -> {
+                    int approved = PhoneGuard.arm(getApplicationContext());
+                    CollectionScheduler.enable(getApplicationContext());
+                    PhoneGuardNotifications.ensureChannel(getApplicationContext());
+                    return "Phone Guard armed with " + approved
+                            + " approved packages. Scheduled checks are enabled.";
+                })));
+        content.addView(button("Enable Phone Guard alerts", view -> requestPhoneGuardNotifications()));
+        content.addView(button("Run Phone Guard check now", view -> runAsync(
+                "Checking installed apps against your approved baseline…",
+                () -> PhoneGuard.scanAndNotify(getApplicationContext()).summary())));
+        content.addView(button("Review last unapproved app", view -> openLastGuardPackage()));
+        content.addView(button("Approve last unapproved app", view -> runAsync(
+                "Approving latest Phone Guard finding…",
+                () -> PhoneGuard.approveLast(getApplicationContext())
+                        ? "Latest app approved and added to your baseline."
+                        : "No installed Phone Guard finding is available to approve.")));
+        content.addView(button("Export latest Phone Guard evidence", view -> prepareGuardExport()));
+        content.addView(button("Disarm Phone Guard", view -> {
+            PhoneGuard.disarm(getApplicationContext());
+            refreshStatus("Phone Guard disarmed. Periodic evidence collection was left unchanged.");
         }));
 
         TextView syncTitle = new TextView(this);
@@ -233,10 +279,52 @@ public final class MainActivity extends Activity {
     }
 
     private void openAppInfo() {
+        openPackageInfo(getPackageName());
+    }
+
+    private void openPackageInfo(String packageName) {
         Intent intent = new Intent(
                 Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                Uri.parse("package:" + getPackageName()));
+                Uri.parse("package:" + packageName));
         startSettings(intent);
+    }
+
+    private void openLastGuardPackage() {
+        String packageName = PhoneGuard.lastPackage(this);
+        if (packageName.isEmpty()) {
+            refreshStatus("Phone Guard has no unapproved-app evidence to review yet.");
+            return;
+        }
+        openPackageInfo(packageName);
+    }
+
+    private void requestPhoneGuardNotifications() {
+        PhoneGuardNotifications.ensureChannel(this);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(
+                    new String[]{Manifest.permission.POST_NOTIFICATIONS},
+                    NOTIFICATION_PERMISSION_REQUEST);
+            return;
+        }
+        refreshStatus(PhoneGuardNotifications.notificationsEnabled(this)
+                ? "Phone Guard alerts are enabled."
+                : "Android notifications are disabled for Watch-Dawg. Open Watch-Dawg App Info > Notifications to enable them.");
+    }
+
+    @Override
+    public void onRequestPermissionsResult(
+            int requestCode,
+            String[] permissions,
+            int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == NOTIFICATION_PERMISSION_REQUEST) {
+            refreshStatus(grantResults.length > 0
+                    && grantResults[0] == PackageManager.PERMISSION_GRANTED
+                    ? "Phone Guard alerts are enabled."
+                    : "Phone Guard notification permission was not granted. Guard checks still run, but Android will not show alert notifications.");
+        }
     }
 
     private void openPrivacySettings() {
@@ -266,6 +354,19 @@ public final class MainActivity extends Activity {
                     }
                     runOnUiThread(() -> launchExport(latest, "watchdawg-signed-snapshot.json"));
                     return "Choose where to save the signed snapshot.";
+                });
+    }
+
+    private void prepareGuardExport() {
+        runAsync(
+                "Preparing Phone Guard evidence…",
+                () -> {
+                    String latest = PhoneGuard.latestIncidentJson(getApplicationContext());
+                    if (latest.isEmpty()) {
+                        throw new IllegalStateException("Phone Guard has no incident evidence to export");
+                    }
+                    runOnUiThread(() -> launchExport(latest, "watchdawg-phone-guard-incident.json"));
+                    return "Choose where to save the Phone Guard evidence.";
                 });
     }
 
@@ -363,10 +464,19 @@ public final class MainActivity extends Activity {
         } catch (Exception error) {
             identity = "\nDevice signing identity: not initialized";
         }
+        String guardStatus;
+        try {
+            guardStatus = PhoneGuard.statusSummary(this);
+        } catch (RuntimeException error) {
+            guardStatus = "unavailable";
+        }
         status.setText(message
                 + "\nUsage Access: " + (usage ? "GRANTED" : "NOT GRANTED")
                 + (usage ? "" : "\nNext: use Settings > Special access > Usage data access. Do not use the normal Permissions page.")
                 + "\nPeriodic collection: " + (scheduled ? "enabled" : "disabled")
+                + "\nPhone Guard: " + guardStatus
+                + "\nPhone Guard alerts: " + (PhoneGuardNotifications.notificationsEnabled(this)
+                        ? "enabled" : "blocked or not granted")
                 + "\nSigned sync: " + (syncConfigured ? "configured" : "not configured")
                 + "\nPending signed snapshots: " + pending
                 + identity);
