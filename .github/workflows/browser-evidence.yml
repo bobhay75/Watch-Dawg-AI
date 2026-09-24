@@ -1,0 +1,65 @@
+name: Validate Watch-Dawg Browser Evidence
+
+on:
+  pull_request:
+    paths:
+      - "sentinel/browser_capture.py"
+      - "sentinel/browser_egress.py"
+      - "sentinel/axe_adapter.py"
+      - "sentinel/website_audit_bundle.py"
+      - "sentinel/browser/**"
+      - "sentinel/audit_tools/**"
+      - "sentinel/proofpass_receipt.py"
+      - "sentinel/tests/test_browser_capture.py"
+      - "sentinel/evidence_store.py"
+      - "sentinel/evidence_verify.py"
+      - "sentinel/http_watch.py"
+      - "scripts/verify_supply_chain.py"
+      - ".github/workflows/browser-evidence.yml"
+  push:
+    branches: [main]
+    paths:
+      - "sentinel/browser_capture.py"
+      - "sentinel/browser_egress.py"
+      - "sentinel/axe_adapter.py"
+      - "sentinel/website_audit_bundle.py"
+      - "sentinel/browser/**"
+      - "sentinel/audit_tools/**"
+      - "sentinel/proofpass_receipt.py"
+      - "sentinel/tests/test_browser_capture.py"
+      - "sentinel/evidence_store.py"
+      - "sentinel/evidence_verify.py"
+      - "sentinel/http_watch.py"
+      - "scripts/verify_supply_chain.py"
+      - ".github/workflows/browser-evidence.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  browser-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - name: Install pinned Sentinel and browser dependencies
+        run: pip install --disable-pip-version-check -r sentinel/requirements.txt -r sentinel/browser/requirements.txt
+      - name: Install pinned accessibility engine
+        run: npm ci --ignore-scripts --no-audit --no-fund --prefix sentinel/audit_tools
+      - name: Install pinned Chromium runtime
+        run: python -m playwright install --with-deps chromium
+      - name: Compile browser evidence modules
+        run: python -m compileall -q sentinel/browser_capture.py sentinel/browser_egress.py sentinel/axe_adapter.py sentinel/website_audit_bundle.py sentinel/proofpass_receipt.py sentinel/tests/test_browser_capture.py
+      - name: Run real Chromium evidence, axe, receipt, and audit-bundle tests
+        env:
+          WATCH_DAWG_BROWSER_TESTS: "1"
+          WATCH_DAWG_AXE_SCRIPT: "sentinel/audit_tools/node_modules/axe-core/axe.min.js"
+        run: python -m unittest sentinel.tests.test_browser_capture -v
+      - name: Verify supply-chain pins
+        run: python scripts/verify_supply_chain.py
