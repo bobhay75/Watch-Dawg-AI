@@ -16,19 +16,28 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: Capture current live shell and assets
+      - name: Capture current live shell, assets, and safe API probes
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p live-ui
           base='https://watch-dawg.emergent.host'
+          ua='Mozilla/5.0 Watch-Dawg-owner-diagnostic/1.0'
           for path in / /app.js /styles.css /favicon.svg; do
             name="${path##*/}"
             [[ -n "$name" ]] || name='index.html'
-            curl --fail --silent --show-error --location \
-              --user-agent 'Mozilla/5.0 Watch-Dawg-owner-diagnostic/1.0' \
-              "$base$path" -o "live-ui/$name"
+            curl --fail --silent --show-error --location --user-agent "$ua" "$base$path" -o "live-ui/$name"
           done
+          {
+            echo '### GET /api/health'
+            curl --silent --show-error --location --user-agent "$ua" -D - "$base/api/health" -o -
+            echo
+            echo '### GET /api/ai/audit (must not invoke AI)'
+            curl --silent --show-error --location --user-agent "$ua" -D - "$base/api/ai/audit" -o -
+            echo
+            echo '### OPTIONS /api/ai/audit (must not invoke AI)'
+            curl --silent --show-error --location --user-agent "$ua" -X OPTIONS -D - "$base/api/ai/audit" -o -
+          } > live-ui/api-probes.txt
           python - <<'PY' > live-ui/button-scan.txt
           from pathlib import Path
           import re
@@ -47,6 +56,7 @@ jobs:
                       print(item)
                       print('---')
           PY
+          cat live-ui/api-probes.txt >> "$GITHUB_STEP_SUMMARY"
           cat live-ui/button-scan.txt >> "$GITHUB_STEP_SUMMARY"
       - name: Upload live UI evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
