@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import base64
 import http.client
 import json
+import os
 import tempfile
 import threading
 import unittest
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
 
 from sentinel.api import (
     ApiError,
@@ -14,6 +17,7 @@ from sentinel.api import (
     ProfileRateLimiter,
     SentinelApiService,
     build_handler,
+    build_service_from_env,
     load_profile_paths,
     validate_api_token,
 )
@@ -117,6 +121,19 @@ class SentinelApiTests(unittest.TestCase):
         self.assertEqual(body["profiles_configured"], 1)
         self.assertNotIn("approved", str(body))
         self.assertEqual(headers["Cache-Control"], "no-store")
+
+    def test_access_log_never_records_query_values_or_unknown_paths(self) -> None:
+        secret = "device-token-must-not-appear"
+        with self.assertLogs("watch_dawg.sentinel.api", level="INFO") as captured:
+            with ApiHarness(self.service) as api:
+                status, _, _ = api.request(
+                    "GET",
+                    f"/unknown/{secret}?token={secret}",
+                )
+        self.assertEqual(status, 404)
+        output = "\n".join(captured.output)
+        self.assertNotIn(secret, output)
+        self.assertIn("route=<unmatched>", output)
 
     def test_run_requires_valid_bearer_token(self) -> None:
         with ApiHarness(self.service) as api:
@@ -232,6 +249,48 @@ class SentinelApiTests(unittest.TestCase):
     def test_api_token_with_whitespace_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "whitespace"):
             validate_api_token("x" * 32 + " ")
+
+    def test_swarm_enrollment_requires_exact_proof_hmac_environment_key(self) -> None:
+        environment = {
+            "SENTINEL_API_TOKEN": TOKEN,
+            "SENTINEL_SWARM_ENROLLMENTS_JSON": "{}",
+        }
+        with patch.dict(os.environ, environment, clear=True):
+            with self.assertRaisesRegex(ValueError, "PROOF_HMAC_KEY.*required"):
+                build_service_from_env()
+
+        environment["SENTINEL_SWARM_PROOF_HMAC_KEY_BASE64"] = base64.b64encode(
+            b"too-short"
+        ).decode()
+        with patch.dict(os.environ, environment, clear=True):
+            with self.assertRaisesRegex(ValueError, "exactly 32 bytes"):
+                build_service_from_env()
+
+        environment["SENTINEL_SWARM_PROOF_HMAC_KEY_BASE64"] = base64.b64encode(
+            b"p" * 32
+        ).decode()
+        with patch.dict(os.environ, environment, clear=True):
+            with self.assertRaisesRegex(ValueError, "at least one enrolled"):
+                build_service_from_env()
+
+    def test_swarm_history_entry_cap_environment_is_forwarded(self) -> None:
+        environment = {
+            "SENTINEL_API_TOKEN": TOKEN,
+            "SENTINEL_SWARM_ENROLLMENTS_JSON": "{}",
+            "SENTINEL_SWARM_PROOF_HMAC_KEY_BASE64": base64.b64encode(
+                b"p" * 32
+            ).decode(),
+            "SENTINEL_SWARM_HISTORY_MAX_ENTRIES_PER_DEVICE": "17",
+        }
+        with patch.dict(os.environ, environment, clear=True), patch(
+            "sentinel.swarm_ingest.load_swarm_enrollment_source",
+            return_value={"enrolled": object()},
+        ), patch("sentinel.swarm_ingest.SwarmSnapshotIngestor") as ingestor_type:
+            build_service_from_env()
+        self.assertEqual(
+            ingestor_type.call_args.kwargs["history_max_entries_per_device"],
+            17,
+        )
 
 
 if __name__ == "__main__":
