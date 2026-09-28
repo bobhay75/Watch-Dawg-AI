@@ -167,6 +167,12 @@ The full Watch-Dawg AI application requires a runtime that can run the Node fron
 
 GitHub Pages intentionally publishes **only** the deterministic browser demo (`index.html` and `watchdawg.js`). Backend code, tests, deployment helpers, and security internals are not included in the Pages artifact.
 
+The Emergent production frontend must not use an undocumented SPA catch-all. The live repair and rollback gate are documented in [`docs/EMERGENT-ROUTING-REPAIR.md`](docs/EMERGENT-ROUTING-REPAIR.md). After an Emergent redeploy, run:
+
+```bash
+npm run verify:emergent-routing -- https://watch-dawg.emergent.host
+```
+
 KEY-9 has a separate Cloud Run deployment path documented in the repository. The public Cloud Run contest service is intended to demonstrate the broker boundary and policy-controlled agent execution without exposing actual secrets.
 
 ## Validation

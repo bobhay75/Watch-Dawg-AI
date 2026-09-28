@@ -1,0 +1,67 @@
+name: Inspect Emergent live UI
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/emergent-live-ui-diagnostic.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-live-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Capture current live shell, assets, and safe API probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p live-ui
+          base='https://watch-dawg.emergent.host'
+          ua='Mozilla/5.0 Watch-Dawg-owner-diagnostic/1.0'
+          for path in / /app.js /styles.css /favicon.svg; do
+            name="${path##*/}"
+            [[ -n "$name" ]] || name='index.html'
+            curl --fail --silent --show-error --location --user-agent "$ua" "$base$path" -o "live-ui/$name"
+          done
+          {
+            echo '### GET /api/health'
+            curl --silent --show-error --location --user-agent "$ua" -D - "$base/api/health" -o -
+            echo
+            echo '### GET /api/ai/audit (must not invoke AI)'
+            curl --silent --show-error --location --user-agent "$ua" -D - "$base/api/ai/audit" -o -
+            echo
+            echo '### OPTIONS /api/ai/audit (must not invoke AI)'
+            curl --silent --show-error --location --user-agent "$ua" -X OPTIONS -D - "$base/api/ai/audit" -o -
+          } > live-ui/api-probes.txt
+          python - <<'PY' > live-ui/button-scan.txt
+          from pathlib import Path
+          import re
+          for path in sorted(Path('live-ui').iterdir()):
+              if not path.is_file():
+                  continue
+              text = path.read_text(encoding='utf-8', errors='replace')
+              matches = []
+              for pattern in [r'(?i)start conversation', r'(?i)>\s*start\s*<', r'(?i)\bstart\b', r'(?i)conversation']:
+                  for match in re.finditer(pattern, text):
+                      lo=max(0,match.start()-300); hi=min(len(text),match.end()+700)
+                      matches.append(text[lo:hi].replace('\n',' '))
+              if matches:
+                  print(f'### {path.name}')
+                  for item in matches[:30]:
+                      print(item)
+                      print('---')
+          PY
+          cat live-ui/api-probes.txt >> "$GITHUB_STEP_SUMMARY"
+          cat live-ui/button-scan.txt >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload live UI evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: emergent-live-ui-diagnostic
+          path: live-ui
+          if-no-files-found: error
+          retention-days: 3
