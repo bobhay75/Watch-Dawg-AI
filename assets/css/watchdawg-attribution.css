@@ -1,0 +1,18 @@
+/* Shared, neutral attribution; no protection or certification claim. */
+.watchdawg-attribution {
+  box-sizing: border-box;
+  width: min(360px, calc(100% - 32px));
+  margin: 24px auto;
+  padding: 14px;
+  border: 1px solid #c6a35d;
+  border-radius: 12px;
+  background: #fffdf8;
+  color: #13283d;
+  text-align: center;
+  font: 14px/1.5 Arial, sans-serif;
+}
+.watchdawg-attribution img { display: block; width: 100%; height: auto; }
+.watchdawg-attribution p { margin: 10px 0 0; color: #13283d; font: inherit; }
+.watchdawg-attribution a { color: #153e60; text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
+.watchdawg-attribution a:hover { color: #000; }
+.watchdawg-attribution a:focus-visible { outline: 3px solid #153e60; outline-offset: 4px; border-radius: 2px; }

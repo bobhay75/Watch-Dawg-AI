@@ -27,6 +27,9 @@ jobs:
           mkdir -p public
           cp public-demo.html public/index.html
           cp watchdawg.js public/watchdawg.js
+          mkdir -p public/assets/brand public/assets/css
+          cp assets/brand/watchdawg-bobsome1.png public/assets/brand/
+          cp assets/css/watchdawg-attribution.css public/assets/css/
       - name: Configure Pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
       - name: Upload static demo only
