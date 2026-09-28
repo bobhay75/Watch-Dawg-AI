@@ -229,6 +229,15 @@ class SentinelEngine:
             100 - sum(SEVERITY_WEIGHTS[item.severity] for item in findings),
         )
         verdict = self._verdict(findings)
+        finding_counts = {
+            "verified": sum(item.truth == "VERIFIED" for item in findings),
+            "inference": sum(item.truth == "INFERENCE" for item in findings),
+            "critical": sum(item.severity == "critical" for item in findings),
+            "high": sum(item.severity == "high" for item in findings),
+            "medium": sum(item.severity == "medium" for item in findings),
+            "low": sum(item.severity == "low" for item in findings),
+            "info": sum(item.severity == "info" for item in findings),
+        }
 
         state["targets"][target_id] = {
             "observation": current.to_dict(),
@@ -243,6 +252,9 @@ class SentinelEngine:
             "observed_at": current.observed_at,
             "verdict": verdict,
             "dawg_score": score,
+            "finding_counts": finding_counts,
+            "coverage": current.facts.get("coverage", {}),
+            "evidence_package": current.facts.get("evidence_package"),
             "evidence_sources": list(current.evidence),
             "current_findings": [explain_finding(item.to_dict()) for item in findings],
             "new_alerts": [explain_finding(item) for item in new_alerts],

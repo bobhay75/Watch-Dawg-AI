@@ -20,6 +20,7 @@ from .ai_system_watch import AiSystemRiskWatchPack
 from .cli import load_config
 from .core import SentinelEngine, StateStore
 from .domain_watch import DnsTlsWatchPack
+from .evidence_store import ContentAddressedEvidenceStore
 from .http_watch import HttpWatchPack
 from .log_watch import AccessLogWatchPack
 from .secret_watch import SecretExposureWatchPack
@@ -148,10 +149,11 @@ def run_profile(config_path: Path, state_path: Path) -> dict[str, Any]:
     log_root = Path(config.get("log_root", "."))
     secret_root = Path(config.get("secret_root", "."))
     ai_manifest_root = Path(config.get("ai_manifest_root", "."))
+    evidence_root = Path(config.get("evidence_root", state_path.parent / "evidence"))
     engine = SentinelEngine(
         StateStore(state_path),
         [
-            HttpWatchPack(),
+            HttpWatchPack(evidence_store=ContentAddressedEvidenceStore(evidence_root)),
             DnsTlsWatchPack(),
             SitemapWatchPack(),
             AccessLogWatchPack(log_root),
