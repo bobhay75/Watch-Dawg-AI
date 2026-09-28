@@ -44,6 +44,8 @@ The intended contractor workflow connects the audit core to jobsite records so W
 
 The operating rule is **detect first, explain why, and give the human a clear next action** rather than silently changing financial records.
 
+The field-security pilot scope extends that contractor workflow into jobsites, open-boundary zones, incident capture, evidence receipts, and human-reviewed reports. See [`docs/FIELD-SECURITY-PILOT.md`](docs/FIELD-SECURITY-PILOT.md).
+
 ## KEY-9 secure agentic credential broker
 
 KEY-9 extends Watch-Dawg into secure agent execution. It is designed so an agent can request access to a protected capability without receiving the underlying secret directly.
