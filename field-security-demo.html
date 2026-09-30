@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Watch-Dawg Field Security Pilot</title>
+    <title>Watch-Dawg Field Security MVP</title>
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@400;700;900&display=swap');
       @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&display=swap');
@@ -11,9 +11,9 @@
 
       :root {
         --bg: #07090c;
-        --panel: rgba(14, 18, 26, .88);
-        --panel-strong: #111823;
-        --line: rgba(255, 255, 255, .11);
+        --panel: rgba(14, 18, 26, .9);
+        --panel-strong: #101824;
+        --line: rgba(255,255,255,.12);
         --cyan: #00e5ff;
         --green: #00ff66;
         --yellow: #ffea00;
@@ -25,13 +25,14 @@
       }
 
       * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
       body {
         margin: 0;
         min-height: 100vh;
         color: var(--text);
         background:
-          radial-gradient(circle at 78% 8%, rgba(0, 229, 255, .18), transparent 34%),
-          radial-gradient(circle at 14% 22%, rgba(0, 255, 102, .09), transparent 30%),
+          radial-gradient(circle at 82% 8%, rgba(0,229,255,.19), transparent 34%),
+          radial-gradient(circle at 14% 22%, rgba(0,255,102,.10), transparent 30%),
           linear-gradient(135deg, #050608, var(--bg));
         font-family: 'IBM Plex Sans', sans-serif;
       }
@@ -41,26 +42,28 @@
         position: fixed;
         inset: 0;
         pointer-events: none;
-        opacity: .24;
+        opacity: .22;
         background-image:
           linear-gradient(rgba(255,255,255,.06) 1px, transparent 1px),
           linear-gradient(90deg, rgba(255,255,255,.06) 1px, transparent 1px);
         background-size: 48px 48px;
       }
 
-      .shell { width: min(1460px, calc(100% - 28px)); margin: 0 auto; padding: 26px 0 54px; position: relative; }
-      .topbar, .hero, .panel { border: 1px solid var(--line); background: var(--panel); backdrop-filter: blur(18px); }
+      .shell { width: min(1480px, calc(100% - 28px)); margin: 0 auto; padding: 26px 0 54px; position: relative; }
+      .topbar, .hero, .panel, .form-card { border: 1px solid var(--line); background: var(--panel); backdrop-filter: blur(18px); }
       .topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px 18px; position: sticky; top: 0; z-index: 5; }
       .brand { display: flex; align-items: center; gap: 14px; }
       .mark { display: grid; place-items: center; width: 48px; height: 48px; border: 1px solid var(--cyan); color: var(--cyan); font: 900 14px 'JetBrains Mono', monospace; box-shadow: 0 0 18px rgba(0,229,255,.24); }
       .eyebrow, .label { color: var(--muted); font: 700 11px 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: .13em; }
       h1, h2, h3 { margin: 0; font-family: 'Unbounded', sans-serif; letter-spacing: -.055em; }
-      h1 { font-size: clamp(42px, 7vw, 90px); line-height: .88; max-width: 920px; }
+      h1 { font-size: clamp(42px, 7vw, 90px); line-height: .88; max-width: 960px; }
       h2 { font-size: clamp(24px, 3.3vw, 42px); line-height: 1; }
       h3 { font-size: 17px; }
       p { color: var(--muted); line-height: 1.62; }
+      a { color: var(--cyan); }
+
       .hero { margin-top: 18px; padding: clamp(26px, 5vw, 54px); display: grid; grid-template-columns: 1.2fr .8fr; gap: 24px; overflow: hidden; }
-      .hero p { max-width: 760px; font-size: 18px; }
+      .hero p { max-width: 800px; font-size: 18px; }
       .pitch-card { border: 1px solid rgba(0,229,255,.28); padding: 22px; background: #05070a; box-shadow: inset 0 0 36px rgba(0,229,255,.06); }
       .pulse { height: 3px; margin: 18px 0; background: linear-gradient(90deg, transparent, var(--cyan), transparent); animation: pulse 2.4s linear infinite; }
       @keyframes pulse { from { transform: translateX(-45%); opacity: .35; } 50% { opacity: 1; } to { transform: translateX(45%); opacity: .35; } }
@@ -69,33 +72,63 @@
       .panel { padding: 18px; }
       .span-2 { grid-column: span 2; }
       .span-3 { grid-column: span 3; }
+      .span-4 { grid-column: span 4; }
       .metric { margin-top: 8px; font: 900 34px 'JetBrains Mono', monospace; letter-spacing: -.06em; }
       .good { color: var(--green); } .warn { color: var(--yellow); } .bad { color: var(--red); }
       .toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0; }
-      button { appearance: none; border: 1px solid var(--line); background: #0b1118; color: var(--text); padding: 11px 14px; font: 700 12px 'JetBrains Mono', monospace; cursor: pointer; }
-      button:hover, button:focus-visible { border-color: var(--cyan); color: var(--cyan); outline: none; }
+      button, .download-button {
+        appearance: none;
+        border: 1px solid var(--line);
+        background: #0b1118;
+        color: var(--text);
+        padding: 11px 14px;
+        font: 700 12px 'JetBrains Mono', monospace;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      button:hover, button:focus-visible, .download-button:hover, .download-button:focus-visible { border-color: var(--cyan); color: var(--cyan); outline: none; }
       .primary { background: var(--cyan); border-color: var(--cyan); color: #001014; }
       .primary:hover, .primary:focus-visible { color: #001014; background: #8af3ff; }
-      textarea, pre, .output { width: 100%; border: 1px solid rgba(0,229,255,.22); background: #000; color: #ddfff1; padding: 15px; font: 13px/1.58 'JetBrains Mono', monospace; white-space: pre-wrap; }
-      textarea { min-height: 540px; resize: vertical; }
-      pre, .output { min-height: 220px; overflow: auto; }
+      .danger { border-color: rgba(255,59,48,.42); color: #ffd7d4; }
+      .danger:hover, .danger:focus-visible { border-color: var(--red); color: #fff; }
+
+      input, select, textarea {
+        width: 100%;
+        border: 1px solid rgba(0,229,255,.22);
+        background: #000;
+        color: #ddfff1;
+        padding: 11px 12px;
+        font: 13px/1.45 'JetBrains Mono', monospace;
+      }
+      textarea { min-height: 360px; resize: vertical; white-space: pre; }
+      pre, .output { width: 100%; border: 1px solid rgba(0,229,255,.22); background: #000; color: #ddfff1; padding: 15px; font: 13px/1.58 'JetBrains Mono', monospace; white-space: pre-wrap; min-height: 220px; overflow: auto; }
+      label { display: grid; gap: 7px; color: var(--muted); font: 700 11px 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: .09em; }
+      .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+      .form-card { padding: 16px; display: grid; gap: 12px; }
+      .checkbox-row { display: flex; align-items: center; gap: 10px; color: var(--muted); font: 700 12px 'JetBrains Mono', monospace; }
+      .checkbox-row input { width: auto; }
+
       .zones { display: grid; gap: 10px; }
-      .zone, .finding { border-left: 3px solid var(--cyan); background: rgba(255,255,255,.045); padding: 12px; }
+      .zone, .finding, .saved-card { border-left: 3px solid var(--cyan); background: rgba(255,255,255,.045); padding: 12px; }
       .zone.restricted { border-left-color: var(--orange); }
       .zone.unmonitored, .finding.high, .finding.critical { border-left-color: var(--red); background: rgba(255,59,48,.08); }
       .finding.medium { border-left-color: var(--yellow); background: rgba(255,234,0,.07); }
       .finding.low { border-left-color: var(--cyan); }
       .tag { display: inline-flex; margin: 5px 6px 0 0; padding: 4px 7px; border: 1px solid var(--line); color: var(--muted); font: 700 10px 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: .08em; }
       .table-wrap { overflow-x: auto; border: 1px solid var(--line); margin-top: 12px; }
-      table { width: 100%; min-width: 780px; border-collapse: collapse; }
-      th, td { padding: 11px 12px; border-bottom: 1px solid var(--line); text-align: left; font: 12px 'JetBrains Mono', monospace; }
+      table { width: 100%; min-width: 840px; border-collapse: collapse; }
+      th, td { padding: 11px 12px; border-bottom: 1px solid var(--line); text-align: left; font: 12px 'JetBrains Mono', monospace; vertical-align: top; }
       th { color: var(--quiet); text-transform: uppercase; letter-spacing: .1em; }
       td { color: #eff8ff; }
-      .toast { position: fixed; right: 22px; bottom: 22px; max-width: 360px; padding: 13px 15px; border: 1px solid var(--cyan); color: var(--cyan); background: rgba(0,0,0,.9); opacity: 0; transform: translateY(10px); transition: .2s; font: 700 12px 'JetBrains Mono', monospace; }
+      .empty { color: var(--quiet); font-style: italic; }
+      .toast { position: fixed; right: 22px; bottom: 22px; max-width: 390px; padding: 13px 15px; border: 1px solid var(--cyan); color: var(--cyan); background: rgba(0,0,0,.9); opacity: 0; transform: translateY(10px); transition: .2s; font: 700 12px 'JetBrains Mono', monospace; z-index: 20; }
       .toast.show { opacity: 1; transform: translateY(0); }
 
-      @media (max-width: 1100px) { .hero { grid-template-columns: 1fr; } .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .span-2, .span-3 { grid-column: span 2; } }
-      @media (max-width: 720px) { .topbar { align-items: flex-start; flex-direction: column; } .grid { grid-template-columns: 1fr; } .span-2, .span-3 { grid-column: span 1; } textarea { min-height: 420px; } }
+      @media (max-width: 1100px) { .hero { grid-template-columns: 1fr; } .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .span-2, .span-3, .span-4 { grid-column: span 2; } }
+      @media (max-width: 720px) { .topbar { align-items: flex-start; flex-direction: column; } .grid, .form-grid { grid-template-columns: 1fr; } .span-2, .span-3, .span-4 { grid-column: span 1; } textarea { min-height: 320px; } }
     </style>
   </head>
   <body>
@@ -104,23 +137,25 @@
         <div class="brand">
           <div class="mark">WD</div>
           <div>
-            <div class="eyebrow">Field Security Pilot</div>
+            <div class="eyebrow">Field Security MVP</div>
             <strong>Watch-Dawg AI</strong>
           </div>
         </div>
-        <div class="tag">No live scan · no deployment · evidence-only demo</div>
+        <div class="tag">No live scan · no deployment · local browser storage</div>
       </header>
 
       <section class="hero">
         <div>
           <div class="eyebrow">Open boundaries. Secured peace.</div>
           <h1>Protect the site. Document the truth. Reduce loss.</h1>
-          <p>Watch-Dawg turns jobsite zones, incidents, photos, notes, and owner review into a clean security command view. It does not guess guilt, scan strangers, or auto-fix anything. It organizes proof so the human can act.</p>
+          <p>Watch-Dawg turns jobsite zones, incidents, photos, notes, and owner review into a local security command center. It does not guess guilt, scan strangers, or auto-fix anything. It organizes captured proof so the human can act.</p>
           <div class="toolbar">
             <button class="primary" id="runButton">Run Field Audit</button>
             <button id="sampleButton">Reload Sample Site</button>
             <button id="receiptButton">Create Evidence Receipt</button>
             <button id="copyButton">Copy Report</button>
+            <a id="exportLink" class="download-button" download="watch-dawg-field-report.txt" href="#">Export Report</a>
+            <button id="clearButton" class="danger">Clear Local Data</button>
           </div>
         </div>
         <aside class="pitch-card">
@@ -148,6 +183,61 @@
           <div class="label">Evidence Items</div>
           <div id="evidenceItems" class="metric good">—</div>
         </article>
+
+        <section class="panel span-4">
+          <div class="label">Build the local site record</div>
+          <div class="grid" style="margin-top:12px">
+            <form id="siteForm" class="form-card span-2">
+              <h3>Create Site</h3>
+              <div class="form-grid">
+                <label>Site name<input id="siteName" required value="Lakeview Remodel Jobsite"></label>
+                <label>Site ID<input id="siteId" value="WD-FIELD-001"></label>
+                <label>Primary contact<input id="primaryContact" value="Site owner"></label>
+                <label>Escalation contact<input id="escalationContact" value="Crew lead"></label>
+              </div>
+              <label class="checkbox-row"><input id="authorizedUse" type="checkbox" checked> I own this site or have explicit authority to document it</label>
+              <button class="primary" type="submit">Save Site</button>
+            </form>
+
+            <form id="zoneForm" class="form-card span-2">
+              <h3>Create Zone</h3>
+              <div class="form-grid">
+                <label>Zone name<input id="zoneName" required placeholder="Tool trailer and materials stack"></label>
+                <label>Boundary type<select id="zoneBoundary"><option value="open">Open</option><option value="restricted">Restricted</option></select></label>
+                <label>Allowed window<input id="zoneWindow" placeholder="07:00-17:00"></label>
+                <label>Status<select id="zoneStatus"><option value="normal">Normal</option><option value="attention">Attention</option><option value="unmonitored">Unmonitored</option></select></label>
+              </div>
+              <label>Zone rule<input id="zoneRule" placeholder="Any after-hours activity requires owner review."></label>
+              <button type="submit">Add Zone</button>
+            </form>
+
+            <form id="incidentForm" class="form-card span-2">
+              <h3>Report Incident</h3>
+              <div class="form-grid">
+                <label>Incident title<input id="incidentTitle" required placeholder="After-hours movement near trailer"></label>
+                <label>Zone<select id="incidentZone"></select></label>
+                <label>Severity<select id="incidentSeverity"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select></label>
+                <label>Status<select id="incidentStatus"><option value="open">Open</option><option value="resolved">Resolved</option></select></label>
+                <label>Observed by<input id="incidentObservedBy" placeholder="Owner walkthrough"></label>
+                <label>Occurred at<input id="incidentOccurredAt" type="datetime-local"></label>
+              </div>
+              <button type="submit">Add Incident</button>
+            </form>
+
+            <form id="evidenceForm" class="form-card span-2">
+              <h3>Add Evidence Item</h3>
+              <div class="form-grid">
+                <label>Incident<select id="evidenceIncident"></select></label>
+                <label>Evidence type<input id="evidenceType" placeholder="photo-note"></label>
+              </div>
+              <label>Description<input id="evidenceDescription" required placeholder="Trailer latch photo uploaded by owner."></label>
+              <div class="toolbar" style="margin:0">
+                <button type="submit">Add Evidence</button>
+                <button type="button" id="markReviewedButton">Mark Selected Human Reviewed</button>
+              </div>
+            </form>
+          </div>
+        </section>
 
         <section class="panel span-2">
           <div class="label">Site evidence input</div>
@@ -198,17 +288,31 @@
         sampleFieldSecurityPilot,
       } from './field-security.js';
 
+      const STORAGE_KEY = 'watch-dawg-field-security-site-v1';
       const $ = (id) => document.getElementById(id);
       const pretty = (value) => JSON.stringify(value, null, 2);
+      const deepCopy = (value) => JSON.parse(JSON.stringify(value));
       const escapeHtml = (value) => String(value ?? '')
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
+        .replace(/\"/g, '&quot;')
         .replace(/'/g, '&#039;');
+
+      let currentSite = loadStoredSite();
       let latestAudit = null;
-      let latestSite = null;
       let latestReport = '';
+      let exportUrl = null;
+
+      function nowLocalValue() {
+        const now = new Date();
+        now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+        return now.toISOString().slice(0, 16);
+      }
+
+      function makeId(prefix) {
+        return `${prefix}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+      }
 
       function showToast(message) {
         $('toast').textContent = message;
@@ -217,9 +321,57 @@
         showToast.timer = window.setTimeout(() => $('toast').classList.remove('show'), 2200);
       }
 
+      function loadStoredSite() {
+        try {
+          const saved = localStorage.getItem(STORAGE_KEY);
+          return saved ? JSON.parse(saved) : deepCopy(sampleFieldSecurityPilot);
+        } catch {
+          return deepCopy(sampleFieldSecurityPilot);
+        }
+      }
+
+      function saveLocalSite() {
+        currentSite.capturedAt = new Date().toISOString();
+        localStorage.setItem(STORAGE_KEY, pretty(currentSite));
+        $('siteInput').value = pretty(currentSite);
+        syncForms();
+        runAudit({ silent: true });
+      }
+
+      function syncForms() {
+        $('siteName').value = currentSite.siteName || '';
+        $('siteId').value = currentSite.siteId || '';
+        $('primaryContact').value = currentSite.ownerContact?.primary || '';
+        $('escalationContact').value = currentSite.ownerContact?.escalation || '';
+        $('authorizedUse').checked = currentSite.authorizedUse === true;
+
+        const zoneOptions = (currentSite.zones || []).map((zone) => `<option value="${escapeHtml(zone.id)}">${escapeHtml(zone.name || zone.id)}</option>`).join('');
+        $('incidentZone').innerHTML = zoneOptions || '<option value="">Create a zone first</option>';
+        $('evidenceIncident').innerHTML = (currentSite.incidents || []).map((incident) => `<option value="${escapeHtml(incident.id)}">${escapeHtml(incident.title || incident.id)}</option>`).join('') || '<option value="">Create an incident first</option>';
+      }
+
+      function applyEditorJson() {
+        currentSite = JSON.parse($('siteInput').value);
+        saveLocalSite();
+      }
+
+      function runAudit(options = {}) {
+        try {
+          const fromEditor = JSON.parse($('siteInput').value);
+          currentSite = fromEditor;
+          localStorage.setItem(STORAGE_KEY, pretty(currentSite));
+          const audit = auditFieldSecuritySite(currentSite);
+          render(currentSite, audit);
+          if (!options.silent) showToast(audit.status === 'VERIFIED' ? 'FIELD REPORT VERIFIED' : 'HUMAN REVIEW REQUIRED');
+        } catch (error) {
+          const fallback = auditFieldSecuritySite(null);
+          render(currentSite, { ...fallback, report: `Invalid site JSON: ${error.message}` });
+          showToast('INVALID SITE JSON');
+        }
+      }
+
       function render(site, audit) {
         latestAudit = audit;
-        latestSite = site;
         latestReport = audit.report;
         const review = audit.status === 'REVIEW';
         $('verdict').textContent = audit.status;
@@ -230,8 +382,9 @@
         $('evidenceItems').textContent = audit.summary.evidenceItems;
         $('report').textContent = audit.report;
         $('aiSummary').textContent = buildFieldSecurityAiSummary(audit);
+        updateExportLink(audit.report);
 
-        $('zoneList').innerHTML = (site.zones || []).map((zone) => `
+        $('zoneList').innerHTML = (site.zones || []).length ? (site.zones || []).map((zone) => `
           <div class="zone ${escapeHtml(zone.boundaryType)} ${escapeHtml(zone.status)}">
             <strong>${escapeHtml(zone.name || zone.id)}</strong><br>
             <span class="tag">${escapeHtml(zone.boundaryType || 'zone')}</span>
@@ -239,7 +392,7 @@
             <span class="tag">${escapeHtml(zone.allowedWindow || 'window unset')}</span>
             <p>${escapeHtml(zone.rule || 'No rule documented.')}</p>
           </div>
-        `).join('');
+        `).join('') : '<div class="saved-card empty">No zones yet. Create one above.</div>';
 
         $('findingList').innerHTML = audit.findings.length
           ? audit.findings.map((finding) => `
@@ -250,41 +403,133 @@
             `).join('')
           : '<div class="finding low"><strong>Clean</strong><br>No field-security findings detected.</div>';
 
-        $('incidentRows').innerHTML = (site.incidents || []).map((incident) => `
+        $('incidentRows').innerHTML = (site.incidents || []).length ? (site.incidents || []).map((incident) => `
           <tr>
             <td>${escapeHtml(incident.id)}</td>
             <td>${escapeHtml(incident.zoneId)}</td>
             <td>${escapeHtml(incident.status)}</td>
             <td>${escapeHtml(incident.severity)}</td>
-            <td>${(incident.evidence || []).length}</td>
-            <td>${escapeHtml(incident.reviewStatus)}</td>
+            <td>${escapeHtml((incident.evidence || []).length)} item(s)</td>
+            <td>${escapeHtml(incident.reviewStatus || 'needs-human-review')}</td>
           </tr>
-        `).join('');
+        `).join('') : '<tr><td colspan="6" class="empty">No incidents yet. Report one above.</td></tr>';
+
+        syncForms();
       }
 
-      function runAudit() {
+      function updateExportLink(report) {
+        if (exportUrl) URL.revokeObjectURL(exportUrl);
+        const body = `${report}\n\n---\nGenerated locally by Watch-Dawg Field Security MVP. No live scan was performed.`;
+        exportUrl = URL.createObjectURL(new Blob([body], { type: 'text/plain' }));
+        $('exportLink').href = exportUrl;
+      }
+
+      $('siteForm').addEventListener('submit', (event) => {
+        event.preventDefault();
+        currentSite.siteId = $('siteId').value.trim() || makeId('SITE');
+        currentSite.siteName = $('siteName').value.trim() || 'Unnamed field site';
+        currentSite.authorizedUse = $('authorizedUse').checked;
+        currentSite.ownerContact = {
+          primary: $('primaryContact').value.trim(),
+          escalation: $('escalationContact').value.trim(),
+        };
+        currentSite.zones ||= [];
+        currentSite.incidents ||= [];
+        saveLocalSite();
+        showToast('SITE SAVED LOCALLY');
+      });
+
+      $('zoneForm').addEventListener('submit', (event) => {
+        event.preventDefault();
+        currentSite.zones ||= [];
+        currentSite.zones.push({
+          id: makeId('ZONE'),
+          name: $('zoneName').value.trim(),
+          boundaryType: $('zoneBoundary').value,
+          allowedWindow: $('zoneWindow').value.trim() || 'window unset',
+          status: $('zoneStatus').value,
+          rule: $('zoneRule').value.trim() || 'No rule documented.',
+        });
+        event.target.reset();
+        saveLocalSite();
+        showToast('ZONE ADDED');
+      });
+
+      $('incidentForm').addEventListener('submit', (event) => {
+        event.preventDefault();
+        currentSite.incidents ||= [];
+        currentSite.incidents.push({
+          id: makeId('INC'),
+          zoneId: $('incidentZone').value,
+          title: $('incidentTitle').value.trim(),
+          severity: $('incidentSeverity').value,
+          status: $('incidentStatus').value,
+          occurredAt: $('incidentOccurredAt').value ? new Date($('incidentOccurredAt').value).toISOString() : new Date().toISOString(),
+          observedBy: $('incidentObservedBy').value.trim() || 'Manual entry',
+          reviewStatus: 'needs-human-review',
+          evidence: [],
+        });
+        event.target.reset();
+        $('incidentOccurredAt').value = nowLocalValue();
+        saveLocalSite();
+        showToast('INCIDENT ADDED');
+      });
+
+      $('evidenceForm').addEventListener('submit', (event) => {
+        event.preventDefault();
+        const incident = (currentSite.incidents || []).find((item) => item.id === $('evidenceIncident').value);
+        if (!incident) return showToast('CREATE AN INCIDENT FIRST');
+        incident.evidence ||= [];
+        incident.evidence.push({
+          id: makeId('EV'),
+          type: $('evidenceType').value.trim() || 'field-note',
+          description: $('evidenceDescription').value.trim(),
+        });
+        $('evidenceDescription').value = '';
+        saveLocalSite();
+        showToast('EVIDENCE ADDED');
+      });
+
+      $('markReviewedButton').addEventListener('click', () => {
+        const incident = (currentSite.incidents || []).find((item) => item.id === $('evidenceIncident').value);
+        if (!incident) return showToast('CREATE AN INCIDENT FIRST');
+        incident.reviewStatus = 'human-reviewed';
+        if ((incident.evidence || []).length && incident.status !== 'resolved') incident.status = 'resolved';
+        saveLocalSite();
+        showToast('INCIDENT MARKED REVIEWED');
+      });
+
+      $('siteInput').addEventListener('change', () => {
         try {
-          const site = JSON.parse($('siteInput').value);
-          const audit = auditFieldSecuritySite(site);
-          render(site, audit);
-          showToast(audit.status === 'VERIFIED' ? 'FIELD REPORT REVIEW-READY' : 'HUMAN REVIEW REQUIRED');
+          applyEditorJson();
+          showToast('JSON APPLIED');
         } catch (error) {
-          $('report').textContent = `Invalid site JSON: ${error.message}`;
-          showToast('INVALID SITE JSON');
+          showToast(`JSON ERROR: ${error.message}`);
         }
-      }
+      });
 
-      $('runButton').addEventListener('click', runAudit);
+      $('runButton').addEventListener('click', () => runAudit());
       $('sampleButton').addEventListener('click', () => {
-        $('siteInput').value = pretty(sampleFieldSecurityPilot);
+        currentSite = deepCopy(sampleFieldSecurityPilot);
+        localStorage.setItem(STORAGE_KEY, pretty(currentSite));
+        $('siteInput').value = pretty(currentSite);
+        syncForms();
         runAudit();
+        showToast('SAMPLE SITE LOADED');
       });
+
       $('receiptButton').addEventListener('click', async () => {
-        if (!latestAudit || !latestSite) runAudit();
-        const receipt = await createFieldSecurityReceipt(latestSite, latestAudit);
-        $('receipt').textContent = pretty(receipt);
-        showToast('CONTENT-ADDRESSED RECEIPT CREATED');
+        try {
+          if (!latestAudit) runAudit({ silent: true });
+          const receipt = await createFieldSecurityReceipt(currentSite, latestAudit);
+          $('receipt').textContent = pretty(receipt);
+          showToast('EVIDENCE RECEIPT CREATED');
+        } catch (error) {
+          $('receipt').textContent = `Receipt failed: ${error.message}`;
+          showToast('RECEIPT FAILED');
+        }
       });
+
       $('copyButton').addEventListener('click', async () => {
         try {
           await navigator.clipboard.writeText(latestReport || $('report').textContent);
@@ -294,8 +539,20 @@
         }
       });
 
-      $('siteInput').value = pretty(sampleFieldSecurityPilot);
-      runAudit();
+      $('clearButton').addEventListener('click', () => {
+        localStorage.removeItem(STORAGE_KEY);
+        currentSite = deepCopy(sampleFieldSecurityPilot);
+        $('siteInput').value = pretty(currentSite);
+        $('receipt').textContent = 'Receipt not generated yet.';
+        syncForms();
+        runAudit({ silent: true });
+        showToast('LOCAL DATA CLEARED');
+      });
+
+      $('incidentOccurredAt').value = nowLocalValue();
+      $('siteInput').value = pretty(currentSite);
+      syncForms();
+      runAudit({ silent: true });
     </script>
   </body>
 </html>
