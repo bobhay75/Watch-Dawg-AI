@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import{auditAllocation,reconcile,dawScore,runWatchDawg,explainAudit,sampleScenarios,createCorrectionPlan,applyApprovedCorrectionPlan}from'./watchdawg.js';
+import{auditFieldSecuritySite,buildFieldSecurityAiSummary,createFieldSecurityReceipt,sampleFieldSecurityPilot}from'./field-security.js';
 
 assert.equal(auditAllocation({gross:500,rate:.1,vault:50,spend:450}).status,'VERIFIED');
 assert.equal(auditAllocation({gross:500,rate:.1,vault:20,spend:480}).status,'REVIEW');
@@ -94,4 +95,38 @@ await assert.rejects(
   }),
   /Ledger changed/
 );
+
+const fieldAudit=auditFieldSecuritySite(sampleFieldSecurityPilot);
+assert.equal(fieldAudit.mode,'field-security');
+assert.equal(fieldAudit.status,'REVIEW');
+assert.equal(fieldAudit.summary.zones,3);
+assert.equal(fieldAudit.summary.openIncidents,2);
+assert.equal(fieldAudit.summary.evidenceItems,3);
+assert.ok(fieldAudit.score<100);
+assert.match(fieldAudit.report,/Human review queue/);
+assert.match(buildFieldSecurityAiSummary(fieldAudit),/evidence-only|provided zone/);
+const fieldReceipt=await createFieldSecurityReceipt(sampleFieldSecurityPilot,fieldAudit,{createdAt:'2026-09-28T12:00:00.000Z'});
+assert.equal(fieldReceipt.version,1);
+assert.equal(fieldReceipt.proofState,fieldAudit.proofState);
+assert.match(fieldReceipt.sourceDigest,/^[a-f0-9]{64}$/);
+assert.match(fieldReceipt.auditDigest,/^[a-f0-9]{64}$/);
+assert.match(fieldReceipt.receiptDigest,/^[a-f0-9]{64}$/);
+assert.equal(fieldReceipt.findings,fieldAudit.findings.length);
+
+const cleanFieldAudit=auditFieldSecuritySite({
+  siteId:'WD-CLEAN-001',siteName:'Clean closeout',authorizedUse:true,capturedAt:'2026-09-28T12:05:00.000Z',
+  ownerContact:{primary:'Owner'},
+  zones:[{id:'ZONE-1',name:'Drive',boundaryType:'open',status:'normal'}],
+  incidents:[{id:'INC-OK',zoneId:'ZONE-1',title:'Delivery matched',severity:'low',status:'resolved',reviewStatus:'human-reviewed',evidence:[{id:'EV-OK',type:'note',description:'Matched ticket'}]}]
+});
+assert.equal(cleanFieldAudit.status,'VERIFIED');
+assert.equal(cleanFieldAudit.proofState,'REVIEW_READY');
+assert.equal(cleanFieldAudit.findings.length,0);
+
+const fieldDemo=fs.readFileSync(new URL('./field-security-demo.html',import.meta.url),'utf8');
+for(const phrase of ['Open boundaries. Secured peace.','Run Field Audit','Create Evidence Receipt','No live scan']){
+  assert.match(fieldDemo,new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
+}
+assert.match(fieldDemo,/from\s+["']\.\/field-security\.js["']/,'field security demo must use the deterministic field-security core');
+
 console.log('Watch-Dawg tests passed');

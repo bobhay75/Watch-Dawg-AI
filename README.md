@@ -44,6 +44,21 @@ The intended contractor workflow connects the audit core to jobsite records so W
 
 The operating rule is **detect first, explain why, and give the human a clear next action** rather than silently changing financial records.
 
+The field-security pilot scope extends that contractor workflow into jobsites, open-boundary zones, incident capture, evidence receipts, and human-reviewed reports. See [`docs/FIELD-SECURITY-PILOT.md`](docs/FIELD-SECURITY-PILOT.md).
+
+### Field-security pilot demo
+
+This branch adds a standalone review demo at [`field-security-demo.html`](field-security-demo.html). The demo uses [`field-security.js`](field-security.js) to run a deterministic, local-only field-security review for:
+
+- site zones and open-boundary rules;
+- restricted and unmonitored areas;
+- incident capture and evidence counts;
+- human-review status;
+- evidence-only AI-style summaries; and
+- content-addressed field evidence receipts.
+
+The field-security demo does not deploy anything, scan live targets, collect credentials, use cameras, or perform autonomous remediation.
+
 ## KEY-9 secure agentic credential broker
 
 KEY-9 extends Watch-Dawg into secure agent execution. It is designed so an agent can request access to a protected capability without receiving the underlying secret directly.
@@ -106,7 +121,9 @@ The suite verifies that:
 - unknown transaction types are flagged instead of silently accepted;
 - a clean ledger produces a DAW score of `100`;
 - the built-in anomaly scenario produces a `REVIEW` verdict, multiple human-review findings, and a DAW score below `100`;
-- the plain-English audit report includes the review queue when anomalies exist.
+- the plain-English audit report includes the review queue when anomalies exist;
+- the field-security pilot flags open restricted-zone incidents, missing evidence, and unreviewed incidents; and
+- the field-security receipt path creates SHA-256 content-addressed evidence receipts.
 
 ### 3. Reproduce the browser demo
 
