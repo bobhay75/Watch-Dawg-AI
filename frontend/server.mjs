@@ -36,6 +36,7 @@ const types = new Map([
   ['.js', 'text/javascript; charset=utf-8'],
   ['.css', 'text/css; charset=utf-8'],
   ['.json', 'application/json; charset=utf-8'],
+  ['.png', 'image/png'],
 ]);
 
 function proxyApi(req, res) {
@@ -58,7 +59,7 @@ function proxyApi(req, res) {
 function safeFilePath(urlPath) {
   const pathname = decodeURIComponent(new URL(urlPath, 'http://local').pathname);
   const mapped = pathname === '/' ? '/index.html' : pathname;
-  if (!['/index.html', '/watchdawg.js'].includes(mapped)) return null;
+  if (!['/index.html', '/watchdawg.js', '/assets/brand/watchdawg-bobsome1.png', '/assets/css/watchdawg-attribution.css'].includes(mapped)) return null;
   return normalize(join(root, mapped));
 }
 
