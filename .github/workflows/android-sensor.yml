@@ -1,0 +1,51 @@
+name: Build Watch-Dawg Android Sensor
+
+on:
+  pull_request:
+    paths:
+      - "android-sensor/**"
+      - "sentinel/swarm_*.py"
+      - "sentinel/tests/android_snapshot_fixture.py"
+      - "sentinel/tests/test_swarm_ingest.py"
+      - "sentinel/tests/test_swarm_schema.py"
+      - ".github/workflows/android-sensor.yml"
+      - ".github/workflows/sentinel.yml"
+  push:
+    branches: [main]
+    paths:
+      - "android-sensor/**"
+      - "sentinel/swarm_*.py"
+      - "sentinel/tests/android_snapshot_fixture.py"
+      - "sentinel/tests/test_swarm_ingest.py"
+      - "sentinel/tests/test_swarm_schema.py"
+      - ".github/workflows/android-sensor.yml"
+      - ".github/workflows/sentinel.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  android-sensor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: "8.9"
+      - name: Run Android unit tests and build debug APK
+        working-directory: android-sensor
+        run: gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+      - name: Upload review APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: watch-dawg-android-sensor-debug
+          path: android-sensor/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

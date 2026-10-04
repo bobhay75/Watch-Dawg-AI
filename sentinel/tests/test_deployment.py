@@ -10,6 +10,13 @@ SENTINEL_ROOT = Path(__file__).resolve().parents[1]
 
 
 class StagingDeploymentTests(unittest.TestCase):
+    def test_container_state_directory_is_private(self) -> None:
+        dockerfile = (SENTINEL_ROOT / "Dockerfile").read_text()
+        self.assertIn(
+            "install -d -m 0700 -o sentinel -g sentinel /state",
+            dockerfile,
+        )
+
     def test_deployment_requires_explicit_staging_opt_in(self) -> None:
         deploy = SENTINEL_ROOT / "scripts/deploy-cloud-run-staging.sh"
         completed = subprocess.run(

@@ -15,3 +15,5 @@ credentials.json
 *.key
 .credentials
 build/
+android-sensor/.gradle/
+android-sensor/local.properties
