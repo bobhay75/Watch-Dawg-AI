@@ -46,18 +46,41 @@ The operating rule is **detect first, explain why, and give the human a clear ne
 
 The field-security pilot scope extends that contractor workflow into jobsites, open-boundary zones, incident capture, evidence receipts, and human-reviewed reports. See [`docs/FIELD-SECURITY-PILOT.md`](docs/FIELD-SECURITY-PILOT.md).
 
-### Field-security pilot demo
+### Field-security desk
 
-This branch adds a standalone review demo at [`field-security-demo.html`](field-security-demo.html). The demo uses [`field-security.js`](field-security.js) to run a deterministic, local-only field-security review for:
+Run `npm run field:preview` with Node.js 22 or later and open
+`http://127.0.0.1:4173`. This serves only the field-desk assets on loopback; it
+does not change the production frontend or deploy the app.
 
-- site zones and open-boundary rules;
-- restricted and unmonitored areas;
-- incident capture and evidence counts;
-- human-review status;
-- evidence-only AI-style summaries; and
-- content-addressed field evidence receipts.
+The local app at [`field-security-demo.html`](field-security-demo.html) supports
+site and zone setup, searchable incident records, editable incident details,
+evidence notes and optional file fingerprints, explicit human review, and a
+separate resolution action. Edits and added evidence reopen an incident for
+review and preserve prior values in local activity history.
 
-The field-security demo does not deploy anything, scan live targets, collect credentials, use cameras, or perform autonomous remediation.
+Export a readable report or a JSON evidence bundle containing the site record,
+history, deterministic audit, report, and an **unsigned SHA-256 integrity
+receipt**. Check or restore a bundle through the app, or independently check it:
+
+```sh
+node scripts/verify-field-bundle.mjs /path/to/watch-dawg-field-bundle.json
+```
+
+The bundle includes file metadata and fingerprints, **not original file bytes**.
+Keep originals separately. An integrity check detects content inconsistent with
+the receipt; it cannot detect someone rebuilding an entire unsigned bundle and
+does not authenticate authorship, dates, or truth.
+
+One site is stored per browser origin using the existing v1 storage key. Existing
+valid v1 records load without invented reviewer details. Writes validate first,
+report storage failures, and reject stale-tab overwrites. Corrupt saved values
+are preserved for recovery. Export a backup before replacing a site, changing
+the preview port, or clearing browser data. This is not cloud backup,
+authenticated multi-user storage, or an immutable evidence repository.
+
+See [`docs/FIELD-DESK.md`](docs/FIELD-DESK.md) for the workflow, limits, and test
+commands. No live scanning, camera access, external fonts, AI API, or autonomous
+remediation is used by this local app.
 
 ## KEY-9 secure agentic credential broker
 

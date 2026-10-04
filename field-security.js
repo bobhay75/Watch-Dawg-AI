@@ -36,6 +36,7 @@ const severityRank = {
 };
 
 export const sampleFieldSecurityPilot = {
+  recordKind: 'sample',
   siteId: 'WD-FIELD-001',
   siteName: 'Lakeview Remodel Jobsite',
   authorizedUse: true,
@@ -179,13 +180,14 @@ export function auditFieldSecuritySite(site) {
     }
   });
 
-  openIncidents.forEach((incident) => {
+  // Resolved entries can still have missing evidence or review, especially in imported records.
+  incidents.forEach((incident) => {
     const zone = findZone(site, incident.zoneId);
     const incidentSeverity = normalize(incident.severity) || 'medium';
     const zoneType = normalize(zone?.boundaryType);
     const incidentEvidence = asArray(incident.evidence);
 
-    if (zoneType === 'restricted' && ['high', 'critical'].includes(incidentSeverity)) {
+    if (normalize(incident.status) !== 'resolved' && zoneType === 'restricted' && ['high', 'critical'].includes(incidentSeverity)) {
       findings.push(makeFinding(
         `FIELD-INCIDENT-${uppercase(incident.id || 'UNKNOWN')}`,
         incidentSeverity,
@@ -200,7 +202,7 @@ export function auditFieldSecuritySite(site) {
         `FIELD-EVIDENCE-${uppercase(incident.id || 'UNKNOWN')}`,
         'medium',
         'evidence',
-        `${incident.title || incident.id || 'Open incident'} has no attached evidence. Capture a photo, note, witness statement, or receipt before export.`,
+        `${incident.title || incident.id || 'Incident'} has no evidence items. Add a photo reference, note, witness statement, or receipt before acting on the record.`,
         incident.id || null
       ));
     }
@@ -296,7 +298,7 @@ export async function createFieldSecurityReceipt(site, audit, options = {}) {
     auditDigest: await digest(audit),
     findings: audit.findings?.length || 0,
     limitations: [
-      'Receipt proves content-addressed field evidence linkage only.',
+      'Unsigned receipt records SHA-256 field evidence linkage only; it does not authenticate an author or timestamp.',
       'Receipt does not prove criminal intent, legal liability, or complete surveillance coverage.',
       'Human review remains required for any business, insurance, police, or customer action.',
     ],

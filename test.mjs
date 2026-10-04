@@ -127,6 +127,8 @@ const fieldDemo=fs.readFileSync(new URL('./field-security-demo.html',import.meta
 for(const phrase of ['Open boundaries. Secured peace.','Run Field Audit','Create Evidence Receipt','No live scan']){
   assert.match(fieldDemo,new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
 }
-assert.match(fieldDemo,/from\s+["']\.\/field-security\.js["']/,'field security demo must use the deterministic field-security core');
+assert.match(fieldDemo,/src="\.\/field-security-app\.js"/,'field security demo must load its app module');
+const fieldApp=fs.readFileSync(new URL('./field-security-app.js',import.meta.url),'utf8');
+assert.match(fieldApp,/from\s+["']\.\/field-security\.js["']/,'field security app must use the deterministic field-security core');
 
 console.log('Watch-Dawg tests passed');
