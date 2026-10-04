@@ -4,7 +4,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "test": "node test.mjs && node --test field-security-app.test.mjs",
+    "test": "node test.mjs && node --test field-security-app.test.mjs public-build.test.mjs",
+    "build:public": "node scripts/build-public.mjs",
     "field:preview": "node scripts/serve-field-desk.mjs",
     "field:verify": "node scripts/verify-field-bundle.mjs"
   }

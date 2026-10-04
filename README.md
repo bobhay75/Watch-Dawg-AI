@@ -50,7 +50,10 @@ The field-security pilot scope extends that contractor workflow into jobsites, o
 
 Run `npm run field:preview` with Node.js 22 or later and open
 `http://127.0.0.1:4173`. This serves only the field-desk assets on loopback; it
-does not change the production frontend or deploy the app.
+does not change the production frontend or deploy the app. The GitHub Pages
+artifact also includes the field desk at `field/`, linked from the demo homepage.
+Build that public artifact with `npm run build:public`. The Pages workflow runs
+the Node test suite before publishing the explicit static-file allowlist.
 
 The local app at [`field-security-demo.html`](field-security-demo.html) supports
 site and zone setup, searchable incident records, editable incident details,

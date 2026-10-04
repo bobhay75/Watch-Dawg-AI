@@ -13,6 +13,21 @@ browser storage. The preview binds only to `127.0.0.1`, serves an explicit asset
 allowlist, uses a restrictive CSP, and returns real 404s for unknown paths.
 It does not proxy APIs or serve repository files outside that allowlist.
 
+The public GitHub Pages build serves this same browser-local app at `field/`,
+linked from the existing demo homepage. `npm run build:public` creates the
+explicitly allowlisted artifact under `build/public`; the Pages workflow runs
+the full Node test suite before building or uploading it. Source/backend files,
+local records, and original evidence files are not part of the published artifact.
+The field page also declares a content security policy that blocks network
+requests from its scripts. The host still receives normal page/asset requests.
+
+Browser storage is per origin, not per path or device account. The hosted app
+cannot automatically see records saved on localhost: export there and import
+the bundle in the hosted app to transfer a record. Anyone with access to the
+same browser profile, and scripts on the same origin, may access that browser's
+stored record. Use an appropriate private device/profile and keep exported
+backups under your control.
+
 ## Workflow
 
 1. Try the clearly labeled fictional sample, or select **New site**. Replacement
@@ -88,6 +103,7 @@ cross-version compatibility guarantee is made.
 
 ```sh
 npm test
+npm run build:public
 node --check field-security-app.js
 python scripts/verify_supply_chain.py
 ```
@@ -106,5 +122,5 @@ check and restore; keyboard dialog close/focus return; narrow viewport layout.
 Authenticated accounts, server-side authorization, durable private file storage,
 trusted signing keys, external timestamps, backup/retention policy, and
 multi-user concurrency belong in a separate reviewed backend implementation.
-This slice deliberately delivers a local field workflow without enabling those
-services or changing either production deployment.
+The public static app delivers a browser-local workflow without enabling those
+backend services. The existing Emergent deployment is separate and unchanged.
