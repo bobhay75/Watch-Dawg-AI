@@ -44,6 +44,47 @@ The intended contractor workflow connects the audit core to jobsite records so W
 
 The operating rule is **detect first, explain why, and give the human a clear next action** rather than silently changing financial records.
 
+The field-security pilot scope extends that contractor workflow into jobsites, open-boundary zones, incident capture, evidence receipts, and human-reviewed reports. See [`docs/FIELD-SECURITY-PILOT.md`](docs/FIELD-SECURITY-PILOT.md).
+
+### Field-security desk
+
+Run `npm run field:preview` with Node.js 22 or later and open
+`http://127.0.0.1:4173`. This serves only the field-desk assets on loopback; it
+does not change the production frontend or deploy the app. The GitHub Pages
+artifact also includes the field desk at `field/`, linked from the demo homepage.
+Build that public artifact with `npm run build:public`. The Pages workflow runs
+the Node test suite before publishing the explicit static-file allowlist.
+
+The local app at [`field-security-demo.html`](field-security-demo.html) supports
+site and zone setup, searchable incident records, editable incident details,
+evidence notes and optional file fingerprints, explicit human review, and a
+separate resolution action. Edits and added evidence reopen an incident for
+review and preserve prior values in local activity history.
+
+Export a readable report or a JSON evidence bundle containing the site record,
+history, deterministic audit, report, and an **unsigned SHA-256 integrity
+receipt**. Check or restore a bundle through the app, or independently check it:
+
+```sh
+node scripts/verify-field-bundle.mjs /path/to/watch-dawg-field-bundle.json
+```
+
+The bundle includes file metadata and fingerprints, **not original file bytes**.
+Keep originals separately. An integrity check detects content inconsistent with
+the receipt; it cannot detect someone rebuilding an entire unsigned bundle and
+does not authenticate authorship, dates, or truth.
+
+One site is stored per browser origin using the existing v1 storage key. Existing
+valid v1 records load without invented reviewer details. Writes validate first,
+report storage failures, and reject stale-tab overwrites. Corrupt saved values
+are preserved for recovery. Export a backup before replacing a site, changing
+the preview port, or clearing browser data. This is not cloud backup,
+authenticated multi-user storage, or an immutable evidence repository.
+
+See [`docs/FIELD-DESK.md`](docs/FIELD-DESK.md) for the workflow, limits, and test
+commands. No live scanning, camera access, external fonts, AI API, or autonomous
+remediation is used by this local app.
+
 ## KEY-9 secure agentic credential broker
 
 KEY-9 extends Watch-Dawg into secure agent execution. It is designed so an agent can request access to a protected capability without receiving the underlying secret directly.
@@ -106,7 +147,9 @@ The suite verifies that:
 - unknown transaction types are flagged instead of silently accepted;
 - a clean ledger produces a DAW score of `100`;
 - the built-in anomaly scenario produces a `REVIEW` verdict, multiple human-review findings, and a DAW score below `100`;
-- the plain-English audit report includes the review queue when anomalies exist.
+- the plain-English audit report includes the review queue when anomalies exist;
+- the field-security pilot flags open restricted-zone incidents, missing evidence, and unreviewed incidents; and
+- the field-security receipt path creates SHA-256 content-addressed evidence receipts.
 
 ### 3. Reproduce the browser demo
 

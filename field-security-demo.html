@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Watch-Dawg | Field desk</title>
+  <link rel="stylesheet" href="./field-security.css">
+  <script type="module" src="./field-security-app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to field desk</a>
+  <header class="topbar">
+    <a href="./" class="brand" aria-label="Watch-Dawg field desk"><span class="mark" aria-hidden="true">W<span>·</span>D</span><span>WATCH-DAWG<small>FIELD DESK</small></span></a>
+    <span class="local-badge"><span aria-hidden="true">●</span> Local workspace</span>
+  </header>
+  <main id="main" class="shell">
+    <div class="intro"><div><p class="eyebrow">Open boundaries. Secured peace.</p><h1>Every incident.<br>A clearer record.</h1><p class="lede">Capture what happened. Keep the evidence together.<br>Give the next decision to a person.</p></div><aside class="intro-note"><span class="eyebrow">01 / Document &nbsp; 02 / Review &nbsp; 03 / Export</span><p>Your field notes stay in this browser. No live scan, camera access, or automatic action.</p><p>Export a backup before clearing browser data or switching devices.</p></aside></div>
+    <noscript><p class="notice">JavaScript is required for the local field desk. No data is sent to a server.</p></noscript>
+    <div id="storageStatus" class="notice" role="status"></div>
+    <div id="error" class="notice error" role="alert" hidden></div>
+    <section class="site-bar" aria-label="Current site">
+      <div><p class="eyebrow" id="siteKind">Sample workspace</p><h2 id="siteHeading">Loading field record…</h2><p id="siteMeta" class="muted"></p></div>
+      <div class="actions"><button id="siteDetailsButton">Site details</button><button id="newSiteButton">New site</button><button id="sampleButton">Load sample</button></div>
+    </section>
+    <section class="metrics" aria-label="Record summary">
+      <div><span class="label">Open incidents</span><strong id="openCount">—</strong><small>Awaiting resolution</small></div>
+      <div><span class="label">Needs review</span><strong id="reviewCount">—</strong><small>Human decision pending</small></div>
+      <div><span class="label">Evidence notes</span><strong id="evidenceCount">—</strong><small>Including file metadata</small></div>
+      <div><span class="label">Defined zones</span><strong id="zoneCount">—</strong><small>Coverage you documented</small></div>
+    </section>
+    <div class="workspace">
+      <section class="panel incident-panel" aria-labelledby="incidentsHeading">
+        <div class="section-head"><div><p class="eyebrow">The working record</p><h2 id="incidentsHeading">Incidents</h2></div><button class="primary" id="addIncidentButton">+ Report incident</button></div>
+        <div class="filters"><label>Find an incident<input id="search" type="search" placeholder="Search title or zone"></label><label>Show<select id="filter"><option value="all">All incidents</option><option value="open">Open</option><option value="review">Needs review</option><option value="resolved">Resolved</option></select></label></div>
+        <div id="incidentList" class="incident-list"></div>
+      </section>
+      <section class="panel detail-panel" aria-label="Incident details">
+        <div id="detailEmpty" class="empty-state"><span class="empty-icon" aria-hidden="true">↗</span><h2>Start with what you know.</h2><p>Select an incident to see its evidence and review history, or report a new one.</p></div>
+        <div id="detail" hidden>
+          <div class="section-head"><p class="eyebrow" id="detailId"></p><button id="editIncidentButton">Edit details</button></div>
+          <h2 id="detailTitle" tabindex="-1"></h2><div id="detailTags" class="tags"></div><p id="detailMeta" class="muted"></p><p id="detailNotes" class="record-text"></p>
+          <div class="subsection"><div class="section-head"><h3>Evidence</h3><button id="addEvidenceButton">+ Add evidence</button></div><p class="hint">Notes and file fingerprints. Original files stay with you.</p><div id="evidenceList"></div></div>
+          <div class="subsection"><h3>Human review</h3><p id="reviewDetail" class="record-text"></p><p id="resolutionDetail" class="record-text"></p><div class="actions"><button id="reviewButton">Record review</button><button id="resolveButton">Resolve incident</button><button id="reopenButton" hidden>Reopen incident</button></div><p class="hint">Review does not close an incident. Changes to its details or evidence reopen it for review.</p></div>
+          <details class="subsection"><summary>Local activity history</summary><ol id="historyList" class="history"></ol><p class="hint">Recorded by this app; not an immutable or externally witnessed log.</p></details>
+        </div>
+      </section>
+    </div>
+    <div class="support-grid">
+      <section class="panel" aria-labelledby="zonesHeading"><div class="section-head"><div><p class="eyebrow">Know your boundaries</p><h2 id="zonesHeading">Site zones</h2></div><button id="addZoneButton">+ Add zone</button></div><div id="zoneList" class="zone-list"></div></section>
+      <section class="panel" aria-labelledby="findingsHeading"><div class="section-head"><div><p class="eyebrow">From the submitted record</p><h2 id="findingsHeading">Review queue</h2></div><button id="runButton">Run Field Audit</button></div><p class="hint">Rule-based checks of your entries. No live monitoring or AI service.</p><div id="findingList" class="finding-list"></div></section>
+    </div>
+    <section class="panel export-panel" aria-labelledby="exportHeading"><div><p class="eyebrow">A record you can take with you</p><h2 id="exportHeading">Ready for the next conversation.</h2><p>Export the full incident record, review notes, local history, and an unsigned integrity receipt. Keep original evidence files alongside it.</p></div><div class="export-actions"><button class="primary" id="bundleButton">Export evidence bundle ↓</button><button id="reportButton">Export readable report ↓</button><button id="receiptButton">Create Evidence Receipt</button><button id="importButton">Import / check bundle</button><button id="rawBackupButton" hidden>Download stored data for recovery</button></div><details class="report-preview"><summary>Preview current report</summary><pre id="report"></pre></details><pre id="receipt" hidden></pre></section>
+    <footer><span>WATCH-DAWG / FIELD DESK</span><p>Local pilot · One site per browser origin · No accounts or cloud backup</p></footer>
+  </main>
+  <dialog id="formDialog" aria-labelledby="formTitle"><div class="dialog-head"><h2 id="formTitle"></h2><button id="closeDialog" aria-label="Close dialog">✕</button></div><p id="formHint" class="hint"></p><form id="entryForm"><div id="formFields" class="form-fields"></div><p id="formError" class="error" role="alert" hidden></p><div class="dialog-actions"><button type="button" id="cancelDialog">Cancel</button><button class="primary" type="submit" id="submitForm">Save</button></div></form></dialog>
+  <dialog id="confirmDialog" aria-labelledby="confirmTitle"><h2 id="confirmTitle"></h2><p id="confirmMessage"></p><div class="dialog-actions"><button id="cancelConfirm">Cancel</button><button class="primary" id="acceptConfirm">Replace current record</button></div></dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

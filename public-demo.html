@@ -214,6 +214,7 @@
     }
     .hero .lead { max-width: 700px; font-size: clamp(1.05rem, 1.8vw, 1.25rem); }
     .actions { display: flex; flex-wrap: wrap; gap: .7rem; margin-top: 1.65rem; }
+    .field-intro { max-width: 680px; margin-top: 1rem; color: var(--muted); font-size: .88rem; line-height: 1.65; }
     .action {
       position: relative;
       display: inline-flex;
@@ -228,6 +229,7 @@
       color: var(--paper);
       font-weight: 850;
       cursor: pointer;
+      text-decoration: none;
       transition: color 180ms ease, background 180ms ease, transform 180ms ease, border-color 180ms ease;
     }
     .action::after {
@@ -541,9 +543,11 @@
         <h1 id="hero-title">Risk leaves <span class="outline">a trail.</span></h1>
         <p class="lead">Watch-Dawg follows the trail from operational anomaly to human decision. KEY-9 keeps protected AI actions behind policy, approval, and isolated credentials.</p>
         <div class="actions">
-          <button class="action action-primary" id="demo" type="button">Run the anomaly hunt <span aria-hidden="true">↗</span></button>
+          <a class="action action-primary" href="./field/">Open the field desk <span aria-hidden="true">↗</span></a>
+          <button class="action" id="demo" type="button">Run the anomaly hunt <span aria-hidden="true">↗</span></button>
           <button class="action" id="jump" type="button">Check my authorized site</button>
         </div>
+        <p class="field-intro">For jobsites: capture incidents, organize evidence, record a human review, and export a report. Field records stay in your browser; export backups to keep them.</p>
         <ul class="trust-row" aria-label="System boundaries">
           <li>Deterministic demo</li>
           <li>No browser credentials</li>
