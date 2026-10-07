@@ -1,6 +1,10 @@
 import { auditFieldSecuritySite, sampleFieldSecurityPilot } from './field-security.js';
 import { createSiteStore, blankSite, validateSite } from './field-security-store.js';
 import { fingerprintFile, createFieldBundle, verifyFieldBundle, fieldReport } from './field-security-export.js';
+import { createOriginalStore } from './field-security-files.js';
+
+const originals = createOriginalStore();
+let detailRender = 0;
 
 const $ = (id) => document.getElementById(id);
 const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
@@ -42,6 +46,7 @@ function renderList(site) {
 }
 
 function renderDetail(site) {
+  const renderId = ++detailRender;
   const incident = site.incidents.find((item) => item.id === selectedId);
   $('detail').hidden = !incident; $('detailEmpty').hidden = Boolean(incident);
   if (!incident) return;
@@ -51,7 +56,15 @@ function renderDetail(site) {
   const zone = site.zones.find((item) => item.id === incident.zoneId);
   $('detailMeta').textContent = `${zone.name} · ${dateText(incident.occurredAt)} · ${incident.observedBy || 'Observer not recorded'}`;
   $('detailNotes').textContent = incident.notes || 'No additional notes recorded.';
-  $('evidenceList').innerHTML = incident.evidence.map((item) => `<article class="evidence-item"><span class="eyebrow">${escape(item.type)}</span><p>${escape(item.description)}</p>${item.attachment ? `<p class="hint">${escape(item.attachment.name)} · ${item.attachment.size.toLocaleString()} bytes · Original not stored</p><code>SHA-256 ${escape(item.attachment.sha256)}</code>` : '<span class="hint">Note only · No file fingerprint</span>'}</article>`).join('') || '<p class="empty">No evidence yet. Add a note and, optionally, fingerprint a file.</p>';
+  $('evidenceList').innerHTML = incident.evidence.map((item) => `<article class="evidence-item"><span class="eyebrow">${escape(item.type)}</span><p>${escape(item.description)}</p>${item.attachment ? `<p class="hint">${escape(item.attachment.name)} · ${item.attachment.size.toLocaleString()} bytes · Original copy: <span data-file-status="${escape(item.id)}">checking this device…</span></p><code>SHA-256 ${escape(item.attachment.sha256)}</code><div class="tags"><button data-download-original="${escape(item.id)}" disabled>Download original ↓</button><button data-connect-original="${escape(item.id)}">Reconnect original</button></div>` : '<span class="hint">Note only · No file fingerprint</span>'}</article>`).join('') || '<p class="empty">No evidence yet. Add a note and, optionally, a file.</p>';
+  for (const item of incident.evidence.filter((entry) => entry.attachment)) {
+    originals.has(item.attachment).then((exists) => updateOriginal(item.id, exists, exists ? 'saved on this device' : 'not on this device')).catch(() => updateOriginal(item.id, false, 'storage unavailable'));
+  }
+  function updateOriginal(id, exists, message) {
+    if (renderId !== detailRender) return;
+    for (const label of $('evidenceList').querySelectorAll('[data-file-status]')) if (label.dataset.fileStatus === id) label.textContent = message;
+    for (const button of $('evidenceList').querySelectorAll('[data-download-original]')) if (button.dataset.downloadOriginal === id) button.disabled = !exists;
+  }
   $('reviewDetail').textContent = incident.review ? `${incident.review.reviewer} · ${dateText(incident.review.at)}\n${incident.review.note}\nReviewer name is self-declared.` : incident.reviewStatus === 'human-reviewed' ? 'Legacy record marked reviewed. No reviewer or review note was recorded; add a review before resolving.' : 'This incident needs a human review.';
   $('resolutionDetail').textContent = incident.resolutionNote ? `Resolution: ${incident.resolutionNote}` : '';
   $('resolveButton').hidden = incident.status === 'resolved'; $('reopenButton').hidden = incident.status !== 'resolved';
@@ -137,14 +150,36 @@ function incidentForm(edit = false) {
 $('addIncidentButton').addEventListener('click', () => incidentForm()); $('editIncidentButton').addEventListener('click', () => incidentForm(true));
 $('addEvidenceButton').addEventListener('click', () => {
   const incidentId = selectedId;
-  openForm('Add evidence', 'The file is read locally to calculate its fingerprint. Only its name, type, size, and SHA-256 are saved. Keep the original separately. Maximum 20 MB.',
-    select('type', 'Evidence type', ['field-note', 'photo-note', 'document-note', 'witness-note'].map((item) => [item, item.replace('-', ' ')]), 'field-note') + area('description', 'Evidence description', '', 'required') + '<label>File to fingerprint (optional)<input name="attachment" type="file"></label>',
+  openForm('Add evidence', 'Files stay on this device. Save an optional original copy so you can download it later. JSON bundles contain fingerprints, not files; keep separate backups. Maximum 20 MB per file.',
+    select('type', 'Evidence type', ['field-note', 'photo-note', 'document-note', 'witness-note'].map((item) => [item, item.replace('-', ' ')]), 'field-note') + area('description', 'Evidence description', '', 'required') + '<label>Evidence file (optional)<input name="attachment" type="file"></label><label class="check"><input name="keepOriginal" type="checkbox" checked>Keep an original copy on this device</label>',
     async (data) => {
       const file = data.get('attachment');
       const fields = { type: value(data, 'type'), description: value(data, 'description') };
-      if (file?.name) fields.attachment = await fingerprintFile(file);
+      if (file?.name) {
+        fields.attachment = await fingerprintFile(file);
+        if (data.has('keepOriginal')) await originals.put(file, fields.attachment);
+      }
       store.addEvidence(incidentId, fields); toast('Evidence saved; incident needs review.');
     }, 'Save evidence');
+});
+$('evidenceList').addEventListener('click', (event) => {
+  const downloadButton = event.target.closest('[data-download-original]');
+  const connectButton = event.target.closest('[data-connect-original]');
+  if (!downloadButton && !connectButton) return;
+  const evidenceId = downloadButton?.dataset.downloadOriginal || connectButton.dataset.connectOriginal;
+  const attachment = selected()?.evidence.find((item) => item.id === evidenceId)?.attachment;
+  if (!attachment) return;
+  if (downloadButton) {
+    safeAction(async () => {
+      downloadButton.disabled = true;
+      try { download(attachment.name, await originals.get(attachment), 'application/octet-stream'); toast('Original fingerprint checked and file downloaded. Keep it alongside your JSON backup.'); }
+      finally { if (downloadButton.isConnected) downloadButton.disabled = false; }
+    })();
+  } else {
+    openForm('Reconnect an original', `Choose the original for ${attachment.name}. Its bytes must match the recorded size and SHA-256. This saves a local copy without changing the evidence record.`,
+      '<label>Original file<input name="original" type="file" required></label>',
+      async (data) => { await originals.put(data.get('original'), attachment); toast('Matching original saved on this device.'); }, 'Save matching original');
+  }
 });
 $('reviewButton').addEventListener('click', () => {
   const incidentId = selectedId;

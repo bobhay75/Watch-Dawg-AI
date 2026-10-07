@@ -57,7 +57,7 @@ the Node test suite before publishing the explicit static-file allowlist.
 
 The local app at [`field-security-demo.html`](field-security-demo.html) supports
 site and zone setup, searchable incident records, editable incident details,
-evidence notes and optional file fingerprints, explicit human review, and a
+evidence notes, optional on-device originals and file fingerprints, explicit human review, and a
 separate resolution action. Edits and added evidence reopen an incident for
 review and preserve prior values in local activity history.
 
@@ -70,7 +70,7 @@ node scripts/verify-field-bundle.mjs /path/to/watch-dawg-field-bundle.json
 ```
 
 The bundle includes file metadata and fingerprints, **not original file bytes**.
-Keep originals separately. An integrity check detects content inconsistent with
+Download saved originals separately and keep them alongside the JSON backup. Reconnect originals after restoring a record; each file is checked against its fingerprint. Browser storage can be cleared or lost. An integrity check detects content inconsistent with
 the receipt; it cannot detect someone rebuilding an entire unsigned bundle and
 does not authenticate authorship, dates, or truth.
 

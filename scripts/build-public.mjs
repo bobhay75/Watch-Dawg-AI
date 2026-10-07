@@ -13,6 +13,7 @@ export const PUBLIC_FILES = Object.freeze({
   'field/field-security.js': 'field-security.js',
   'field/field-security-app.js': 'field-security-app.js',
   'field/field-security-store.js': 'field-security-store.js',
+  'field/field-security-files.js': 'field-security-files.js',
   'field/field-security-export.js': 'field-security-export.js',
 });
 

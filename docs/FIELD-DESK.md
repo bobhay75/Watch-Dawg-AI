@@ -36,13 +36,15 @@ backups under your control.
 3. Add a zone with its boundary, expected hours, and coverage status.
 4. Report an incident with a title, severity, time, observer, and notes.
 5. Select it to add evidence notes. Optionally select a local file up to 20 MB;
-   the app hashes its exact bytes and stores only its name, size, media type, and
-   SHA-256. No file is uploaded or retained. Keep the original separately.
+   the app hashes its exact bytes and records its name, size, media type, and
+   SHA-256. Leave **Keep an original copy on this device** checked to retain
+   the file locally, or uncheck it to save only its fingerprint. No file uploads.
 6. Record a named human review and note. This never automatically resolves it.
 7. Resolve explicitly with a resolution note. The app requires authority, a
    recorded review, and at least one evidence note. Resolution is not a finding
    about legal responsibility or the truth of submitted statements.
-8. Export a readable report or a complete JSON bundle. Use **Import / check
+8. Export a readable report or a JSON record bundle. Download each original
+   from its incident separately and keep the files alongside the JSON. Use **Import / check
    bundle** to check integrity without changing the active site, or choose to
    restore it and confirm replacement.
 
@@ -73,6 +75,26 @@ Bounds: 4 MB site JSON; 200 zones; 1,000 incidents; 200 evidence notes per
 incident; 2,000 local history entries; 20 MB per selected original file; 16 MB
 import file. Hitting a bound refuses the save instead of truncating history.
 
+## Original files
+
+Optional originals use IndexedDB (`watch-dawg-originals-v1`, store `files`),
+keyed by SHA-256. Availability is checked on the current device; importing a
+JSON bundle alone never claims that its originals are present. **Download
+original** verifies the size and fingerprint again before downloading the exact
+bytes. **Reconnect original** checks an externally saved file against the
+record before retaining it. Reconnecting matching bytes does not change the
+incident, its review, or its history.
+
+File writes commit before incident metadata is saved. If metadata saving fails,
+a successfully stored original may remain unreferenced; retrying with the same
+file reuses its fingerprint. Changing sites or restoring a bundle does not
+remove earlier originals. To recover them, restore the corresponding record
+bundle. There is no automatic cleanup or application deletion control in this
+release; clearing this site's browser storage removes both records and files.
+Back up all records and download all needed originals before doing so. Browser
+quotas apply; failed original saves leave the incident unchanged and offer a
+fingerprint-only alternative. Stored originals are not encrypted by this app.
+
 ## Integrity boundary
 
 `field-security-export.js` derives the audit and readable report from a copied,
@@ -98,6 +120,7 @@ cross-version compatibility guarantee is made.
 - `field-security.js`: deterministic rules and legacy receipt interface.
 - `field-security-store.js`: validation, local persistence, and state transitions.
 - `field-security-export.js`: file fingerprints, readable reports, and bundle verification.
+- `field-security-files.js`: local original storage and byte verification.
 - `field-security-app.js`: DOM interaction and accessible native dialogs.
 - `field-security.css`: responsive styles with reduced-motion handling.
 
