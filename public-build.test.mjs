@@ -30,7 +30,7 @@ test('public artifact includes both apps and all field dependencies without repo
     '.nojekyll', 'index.html', 'watchdawg.js',
     'assets/brand/watchdawg-bobsome1.png', 'assets/css/watchdawg-attribution.css',
     'field/index.html', 'field/field-security.css', 'field/field-security.js',
-    'field/field-security-app.js', 'field/field-security-store.js', 'field/field-security-export.js',
+    'field/field-security-app.js', 'field/field-security-store.js', 'field/field-security-export.js', 'field/field-security-files.js',
   ].sort());
   const rootPage = await readFile(join(output, 'index.html'), 'utf8');
   const fieldPage = await readFile(join(output, 'field/index.html'), 'utf8');
@@ -40,7 +40,7 @@ test('public artifact includes both apps and all field dependencies without repo
   assert.match(fieldPage, /http-equiv="Content-Security-Policy"/);
   assert.match(fieldPage, /connect-src 'none'/);
   for (const match of fieldPage.matchAll(/(?:src|href)="\.\/([^"#]+)"/g)) await access(join(output, 'field', match[1]));
-  for (const name of ['field-security-app.js', 'field-security-store.js', 'field-security-export.js']) {
+  for (const name of ['field-security-app.js', 'field-security-store.js', 'field-security-export.js', 'field-security-files.js']) {
     const code = await readFile(join(output, 'field', name), 'utf8');
     for (const match of code.matchAll(/from\s+['"]\.\/([^'"]+)['"]/g)) await access(join(output, 'field', match[1]));
   }

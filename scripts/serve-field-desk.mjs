@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 const files = new Map([
   ['/', ['field-security-demo.html', 'text/html; charset=utf-8']],
   ['/field-security-demo.html', ['field-security-demo.html', 'text/html; charset=utf-8']],
-  ...['field-security.js', 'field-security-app.js', 'field-security-store.js', 'field-security-export.js'].map((name) => [`/${name}`, [name, 'text/javascript; charset=utf-8']]),
+  ...['field-security.js', 'field-security-app.js', 'field-security-store.js', 'field-security-export.js', 'field-security-files.js'].map((name) => [`/${name}`, [name, 'text/javascript; charset=utf-8']]),
   ['/field-security.css', ['field-security.css', 'text/css; charset=utf-8']],
 ]);
 export function createPreviewServer() {

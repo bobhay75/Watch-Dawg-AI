@@ -232,3 +232,31 @@ test('field desk loads external modules, labeled dialogs, and reduced-motion sty
   assert.match(css, /prefers-reduced-motion/);
   assert.doesNotMatch(html, /https:\/\//);
 });
+
+
+test('original verification checks exact bytes and supports empty files', async () => {
+  const { verifyOriginal } = await import('./field-security-files.js');
+  const original = new Blob(['exact bytes']);
+  const metadata = await fingerprintFile(original);
+  assert.equal(await verifyOriginal(original, metadata), original);
+  await assert.rejects(verifyOriginal(new Blob(['other bytes']), metadata), /fingerprint/);
+  await assert.rejects(verifyOriginal(new Blob(['short']), metadata), /size/);
+  await assert.rejects(verifyOriginal(new Blob(['wrong byte!']), { ...metadata, size: 11 }), /fingerprint/);
+  await assert.rejects(verifyOriginal(undefined, metadata), /unavailable/);
+  const empty = new Blob([]);
+  assert.equal(await verifyOriginal(empty, await fingerprintFile(empty)), empty);
+});
+
+test('unavailable original storage fails without changing incident records', async () => {
+  const { createOriginalStore } = await import('./field-security-files.js');
+  const { store, incidentId } = fixture();
+  const before = store.get();
+  const originals = createOriginalStore(() => { throw new Error('storage disabled'); });
+  const file = new Blob(['synthetic']);
+  const attachment = await fingerprintFile(file);
+  await assert.rejects((async () => {
+    await originals.put(file, attachment);
+    store.addEvidence(incidentId, { type: 'field-note', description: 'test', attachment });
+  })(), /unavailable/);
+  assert.deepEqual(store.get(), before);
+});
