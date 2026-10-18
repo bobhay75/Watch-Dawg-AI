@@ -1,0 +1,81 @@
+name: Watch-Dawg KCMC Publisher
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/kcmc-publisher-watch.yml'
+      - 'sentinel/kcmc_publisher.py'
+      - 'sentinel/tests/test_kcmc_publisher.py'
+  pull_request:
+    paths:
+      - '.github/workflows/kcmc-publisher-watch.yml'
+      - 'sentinel/kcmc_publisher.py'
+      - 'sentinel/tests/test_kcmc_publisher.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kcmc-publisher-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest sentinel.tests.test_kcmc_publisher -v
+
+  monitor:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Restore previous observations
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .sentinel/kcmc/state.json
+          key: kcmc-publisher-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: kcmc-publisher-v1-
+      - name: Observe KCMC Publisher only
+        run: python -m sentinel.kcmc_publisher
+      - name: Save observations for duplicate suppression
+        if: always() && hashFiles('.sentinel/kcmc/state.json') != ''
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .sentinel/kcmc/state.json
+          key: kcmc-publisher-v1-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Retain minimized evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: kcmc-publisher-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .sentinel/kcmc/report.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Flag new operational findings
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('.sentinel/kcmc/report.json').read_text())
+          if report['new_actionable_alert_count']:
+              raise SystemExit('New Watch-Dawg finding: review the report and job summary. This is not automatically proof of an outage.')
+          PY
