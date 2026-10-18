@@ -17,7 +17,7 @@ export function prepareEvidence(bytes, url, now = new Date()) {
     capture:{submittedURL:url, byteLength:bytes.byteLength},
     source:{url:canonical,contentSha256:digest},
     reviewDraft:{
-      id:null, url:canonical, contentSha256:digest, sourceId:null, claimId:null,
+      status:'pending', id:null, url:canonical, contentSha256:digest, sourceId:null, claimId:null,
       category:null, headline:null, eventAt:null, publishedAt:null,
       retrievedAt:null, verifiedAt:null, expiresAt:null,
       support:'unreviewed', maxImpact:null, originId:null, documentId:null,

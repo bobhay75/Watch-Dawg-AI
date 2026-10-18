@@ -138,3 +138,30 @@ test('digest with trailing newline is rejected even if an injected review matche
  const f=setup();f.signal.sources[1].contentSha256+='\n';f.evidenceReviews[1].contentSha256+='\n';
  blocked(f,'MISSING_CONTENT_DIGEST');
 });
+for(const status of ['pending','revoked','approved ','APPROVED',null]) test(`claim review status ${JSON.stringify(status)} cannot grant approval`,()=>{
+ const f=setup();f.evidenceReviews[1].status=status;blocked(f,status==='revoked'?'REVIEW_REVOKED':'REVIEW_NOT_APPROVED');
+});
+test('legacy claim review without explicit approval fails closed',()=>{
+ const f=setup();delete f.evidenceReviews[1].status;blocked(f,'REVIEW_NOT_APPROVED');
+});
+test('revoked review identity overrides an older approval with different document metadata',()=>{
+ const f=setup();f.evidenceReviews.push({id:f.evidenceReviews[1].id,status:'revoked',url:'https://beta.example.org/other',claimId:'other',contentSha256:'f'.repeat(64)});
+ blocked(f,'REVIEW_REVOKED');
+});
+test('revocation tombstone blocks both input orders and cannot be evaded by replay',()=>{
+ const f=setup();f.evidenceReviews.push({id:f.evidenceReviews[1].id,status:'revoked'});
+ blocked(f,'REVIEW_REVOKED');f.evidenceReviews.reverse();blocked(f,'REVIEW_REVOKED');
+ f.now=new Date('2026-10-17T11:45:00Z');blocked(f,'REVIEW_REVOKED');
+});
+test('an unrelated revoked review does not block independently approved evidence',()=>{
+ const f=setup();f.evidenceReviews.push({id:'unrelated-review',status:'revoked'});assert.equal(assess(f).alert,true);
+});
+for(const revokedAt of ['2026-10-17T11:59:00Z','2026-10-18T12:00:00Z',null,'invalid']) test(`contradictory approved review with revokedAt=${JSON.stringify(revokedAt)} fails closed`,()=>{
+ const f=setup();f.evidenceReviews[1].revokedAt=revokedAt;blocked(f,'REVIEW_REVOKED');
+});
+test('source revocation marker overrides an inconsistent approved status',()=>{
+ const f=setup();f.registry.sources[1].revokedAt='2026-10-17T11:59:00Z';blocked(f,'SOURCE_NOT_APPROVED');
+});
+test('claim revocation does not mutate the trusted ledger',()=>{
+ const f=setup();f.evidenceReviews.push({id:f.evidenceReviews[1].id,status:'revoked'});const before=structuredClone(f);blocked(f,'REVIEW_REVOKED');assert.deepEqual(f,before);
+});

@@ -76,6 +76,7 @@ Each trusted evidence review requires:
 
 | Field | Binding or assessment |
 | --- | --- |
+| `status` | Must be exactly `approved`; pending, missing or revoked status cannot grant trust |
 | `id`, `reviewer`, `reviewNote` | Audit reference, responsible human and claim-support rationale |
 | `url`, `contentSha256`, `sourceId` | Canonical URL, document digest and registered source identity |
 | `claimId`, `category`, `headline`, `eventAt` | Exact reviewed signal; edits invalidate reuse |
@@ -84,6 +85,29 @@ Each trusted evidence review requires:
 | `originId` | Original reporting/evidence chain; copies of one release share this ID |
 | `documentId` | Stable document identity across mirrors, translations or revised byte encodings |
 | `publishedAt`, `retrievedAt`, `verifiedAt`, `expiresAt` | Reviewed publication, capture, verification and expiry instants |
+
+Claim reviews require an explicit `status: "approved"` in trusted curator
+configuration. Legacy records with no status now fail closed. Filling in a
+pending draft's other fields does not approve it; the draft's own status remains
+`pending`. A status field is a policy declaration, not authenticated proof that a
+human approved anything. Protect the ledger from untrusted writers.
+
+A deny-only entry such as `{ "id": "review-beta", "status": "revoked" }` blocks
+that stable review ID across all claims, documents, copies and evaluation clocks.
+An older approved copy cannot override it by changing URL/hash/claim metadata or
+by replaying a time before revocation. Any `revokedAt` field on a claim review or
+source entry also blocks trust, even if another field says `approved` or the
+marker is missing a valid timestamp. This deliberately fails closed on
+contradictory records. Real revocation records should preserve the responsible
+human, reason and timestamp in the protected ledger; incomplete deny records
+still deny rather than accidentally approve.
+
+Keep revocation tombstones when preparing a current review snapshot. This is
+not an append-only event-history engine: duplicate full matching records remain
+ambiguous and blocked. Reactivation requires a separately reviewed current
+snapshot; merely appending a new approved record is not an undo operation.
+Historical replay uses the supplied current revocation policy and cannot recover
+an earlier state of trust. Different policy snapshots must be tracked separately.
 
 The classifier matches exactly one review per canonical URL, digest and claim.
 Absent or ambiguous matches cannot count. It checks the claim/category/headline,
@@ -151,7 +175,7 @@ file, registry or approved review is written. Redirect stdout to your chosen
 private review location if needed. The tool never executes or renders the file.
 
 The output contains a canonical URL and SHA-256 source record, plus a
-`reviewDraft` with `support: "unreviewed"` and unresolved human-assessment fields.
+`reviewDraft` with `status: "pending"`, `support: "unreviewed"` and unresolved human-assessment fields.
 Its top-level `status` is `pending`. It cannot qualify as reviewed evidence.
 `preparedAt` records preparation time only: event, publication, retrieval,
 verification and expiry times remain unset. The submitted URL is retained

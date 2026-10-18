@@ -40,7 +40,7 @@ export function validateRegistry(registry, now) {
     ids.add(source.id);
     for (const host of source.hosts) {
       if (typeof host !== 'string' || canonicalURL(`https://${host}/`) !== `https://${host}/` || /[/:?#]/.test(host) || hosts.has(host)) throw new TypeError('Invalid or duplicate registry host');
-      hosts.set(host, {...source, active: source.status === 'approved' && timestamp(source.reviewedAt) <= now && now < timestamp(source.expiresAt)});
+      hosts.set(host, {...source, active: source.status === 'approved' && !Object.hasOwn(source,'revokedAt') && timestamp(source.reviewedAt) <= now && now < timestamp(source.expiresAt)});
     }
   }
   return hosts;
@@ -49,6 +49,10 @@ export function validateRegistry(registry, now) {
 export function verifyEvidence(input, now, registry, reviews, severity) {
   const hosts = validateRegistry(registry, now);
   if (!Array.isArray(reviews) || reviews.length > LIMITS.reviews) throw new TypeError('Evidence reviews array required');
+  // Deny-only tombstones override approvals with the same stable review ID,
+  // regardless of the claim/document metadata or historical evaluation clock.
+  const revokedIds = new Set(reviews.filter(r => r && identity(r.id) &&
+    (r.status === 'revoked' || Object.hasOwn(r,'revokedAt'))).map(r => r.id));
   const candidates = [], rejected = [], seenURLs = new Set(), seenHashes = new Set();
   const eventTime = timestamp(input.observedAt);
   for (let index = 0; index < input.sources.length; index++) {
@@ -62,8 +66,10 @@ export function verifyEvidence(input, now, registry, reviews, severity) {
     // Only an exact reviewed claim and preserved document may qualify. Signal
     // flags, source IDs, ownership assertions and supplied dates grant no trust.
     const matches = reviews.filter(r => r && r.url === url && r.contentSha256 === evidence.contentSha256 && r.claimId === input.id);
+    if (matches.some(r => revokedIds.has(r.id))) { reject('REVIEW_REVOKED'); continue; }
     if (matches.length !== 1) { reject(matches.length ? 'AMBIGUOUS_REVIEW' : 'NO_CLAIM_REVIEW'); continue; }
     const r = matches[0];
+    if (r.status !== 'approved') { reject('REVIEW_NOT_APPROVED'); continue; }
     if (r.sourceId !== source.id || r.category !== input.category || r.headline !== input.headline ||
         timestamp(r.eventAt) !== eventTime || r.support !== 'direct' ||
         !Number.isInteger(r.maxImpact) || r.maxImpact < severity || r.maxImpact > 4 ||

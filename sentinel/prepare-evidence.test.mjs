@@ -17,7 +17,7 @@ function withFile(fn) {
 test('hashes exact bytes using a known SHA-256 vector, without approving evidence',()=>{
  const r=prepareEvidence(Buffer.from('abc'),url,now);
  assert.equal(r.source.contentSha256,'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
- assert.equal(r.status,'pending');assert.equal(r.reviewDraft.support,'unreviewed');
+ assert.equal(r.status,'pending');assert.equal(r.reviewDraft.support,'unreviewed');assert.equal(r.reviewDraft.status,'pending');
  assert.equal(r.reviewDraft.reviewer,null);assert.equal(r.reviewDraft.retrievedAt,null);
  assert.equal(r.reviewDraft.publishedAt,null);assert.equal(r.reviewDraft.verifiedAt,null);
  assert.equal(r.preparedAt,now.toISOString());
@@ -44,7 +44,7 @@ test('pending draft cannot corroborate even with an approved source registry',()
  const signal={...fixture.signal,sources:[r.source]};
  const result=assessSignal(signal,now,{registry:fixture.registry,evidenceReviews:[draft]});
  assert.equal(result.alert,false);assert.equal(result.confidence,'UNVERIFIED');
- assert.equal(result.rejectedEvidence[0].reason,'UNSUPPORTED_CLAIM');
+ assert.equal(result.rejectedEvidence[0].reason,'REVIEW_NOT_APPROVED');
 });
 test('requires byte input, valid HTTPS URL, bounded size and valid clock',()=>{
  assert.throws(()=>prepareEvidence('abc',url,now),TypeError);

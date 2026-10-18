@@ -90,3 +90,13 @@ test('CLI tampered capture has nonzero exit and no partial report',()=>withDossi
  const r=spawnSync(process.execPath,[new URL('./review-dossier.mjs',import.meta.url).pathname,'--dossier',file,'--at',now.toISOString()],{encoding:'utf8'});
  assert.equal(r.status,1);assert.equal(r.stdout,'');assert.match(r.stderr,/SHA-256 mismatch/);
 }));
+test('verified capture bytes cannot override a pending or revoked claim review',()=>{
+ for(const status of ['pending','revoked']) {
+  const d=make();d.evidenceReviews[1].status=status;const r=reviewDossier(d,load,now);
+  assert.ok(r.documentChecks.every(c=>c.hashVerified));assert.equal(r.results[0].alert,false);assert.equal(r.results[0].confidence,'SINGLE_SOURCE');
+ }
+});
+test('offline dossier respects a stable review-ID revocation tombstone',()=>{
+ const d=make();d.evidenceReviews.push({id:d.evidenceReviews[1].id,status:'revoked'});
+ const r=reviewDossier(d,load,now);assert.equal(r.results[0].alert,false);assert.ok(r.results[0].rejectedEvidence.some(e=>e.reason==='REVIEW_REVOKED'));
+});
