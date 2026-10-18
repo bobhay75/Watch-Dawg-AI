@@ -174,12 +174,63 @@ indicators per signal, 256 signals per batch, 1,024 registered sources (up to 16
 hosts each), and 4,096 claim reviews. These are count limits, not a replacement
 for request-byte limits and authenticated policy loading in a future service.
 
+## Offline dossier runner and synthetic demo
+
+Requires Node 22 or newer; these commands use Node built-ins and need no package
+installation. From the repository root:
+
+```sh
+npm run --silent sentinel:demo
+```
+
+This runs the synthetic `fixtures/offline-demo.json` at its explicit historical
+evaluation time. Two preserved `.txt` documents are hashed and compared against
+the manifest before the runner returns its JSON report. The fixture's approved
+sources and claim reviews are **stipulated test data**, not real approvals. The
+normal `source-registry.json` remains empty. The demo does not load that test
+registry into any live service or alter configuration.
+
+To review your own protected dossier:
+
+```sh
+npm run --silent sentinel:review -- --dossier /path/to/private-dossier.json
+```
+
+The dossier is a trusted curator-controlled JSON file with `version: 1`,
+`mode: "review-only"`, `registry`, `evidenceReviews`, `signals`, and `documents`.
+Use the synthetic dossier as a shape example only. Each document entry contains
+`path`, `url`, and `contentSha256`; `path` is a simple filename alongside the
+dossier. Absolute paths, directory components, traversal, trailing whitespace,
+ambiguous manifest identities and final-component symlinks are rejected. The
+CLI reads regular local files only. Each file, including dossier JSON, is
+limited to 16 MiB; captures total at most 64 MiB, across at most 256 documents.
+
+Every signal source must map to a preserved document by canonical URL and exact
+SHA-256. All manifest files are rehashed at assessment time, including entries
+not referenced by a signal. Missing or mismatched captures abort the entire run
+with a nonzero exit code and **no partial JSON report**. Documents are not rendered
+or executed, fetched from URLs, or included verbatim in output. Successful JSON
+goes to stdout; the runner writes no files and changes no registry or review.
+
+The report includes `documentChecks` with `hashVerified: true`, evaluation time,
+per-signal rejection reasons, and mandatory review-only fields. Hash verification
+means exact-byte agreement only; it does not establish authenticity or truth.
+The `synthetic` flag reflects the dossier's declaration, not an authenticity test.
+Local policy files and the filesystem must be protected from unauthorized edits;
+this CLI is not a hostile-filesystem sandbox or an authenticated review service.
+
+The default uses the current clock (`clockMode: "current-clock"`). To reproduce a
+past assessment, add `--at` followed by a strict UTC ISO time. Reports then carry
+`clockMode: "explicit-historical-replay"`; their eligibility findings must never
+be presented as current warnings. Even a historical `alert: true` remains a
+human-review candidate and performs no action.
+
 ## Deterministic validation and limitations
 
 Run from the repository root:
 
 ```sh
-node --test sentinel/sentinel.test.mjs sentinel/prepare-evidence.test.mjs
+node --test sentinel/sentinel.test.mjs sentinel/prepare-evidence.test.mjs sentinel/review-dossier.test.mjs
 npm test
 python -m unittest discover -s sentinel/tests -v
 ```

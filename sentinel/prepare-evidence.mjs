@@ -32,7 +32,7 @@ export function verifyDocument(bytes, expectedDigest) {
   return createHash('sha256').update(bytes).digest('hex') === expectedDigest;
 }
 
-function readDocument(file) {
+export function readDocument(file) {
   // Linux/macOS: reject symlinks and avoid blocking on named pipes. fstat also
   // rejects directories/devices. No network or output file is opened.
   if (constants.O_NOFOLLOW === undefined || constants.O_NONBLOCK === undefined) throw new Error('Safe local file flags unavailable');

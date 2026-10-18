@@ -25,7 +25,7 @@ jobs:
         with:
           node-version: 22
       - name: Validate offline evidence classifier
-        run: node --test sentinel/sentinel.test.mjs sentinel/prepare-evidence.test.mjs
+        run: node --test sentinel/sentinel.test.mjs sentinel/prepare-evidence.test.mjs sentinel/review-dossier.test.mjs
       - name: Compile Sentinel
         run: python -m compileall -q sentinel
       - name: Check staging deployment scripts
