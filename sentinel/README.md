@@ -53,6 +53,12 @@ Each source entry requires:
 | `reviewReferences` | Nonempty list of records supporting identity/ownership/editorial findings |
 | `reviewedAt`, `expiresAt` | Review validity interval; review must already have occurred and not expired |
 
+Stable source, owner, editorial-group, review, origin and document IDs use
+lowercase ASCII alphanumeric segments separated by `-`, `_`, `.`, or `:` (at most
+128 characters). Whitespace and uppercase variants are rejected rather than
+silently splitting a common identity. Reviewer names and notes remain free text.
+Humans must still resolve genuinely different aliases for the same organization.
+
 Duplicate identities, overlapping host assignments, malformed records or missing
 ownership/editorial metadata cause a configuration error. Pending, revoked,
 future-reviewed or expired entries do not qualify. Unknown independence must
@@ -130,12 +136,50 @@ Conflicting reuse of an ID throws rather than silently replacing a claim.
 Different IDs referring to the same real event are not automatically reconciled;
 that remains a human review task before any future downstream action.
 
+## Offline document preparation
+
+Use a preserved local document, not a live URL fetch:
+
+```sh
+npm run --silent sentinel:prepare -- --file /path/to/preserved-report.html --url https://source.example.org/report
+```
+
+To check a previously reviewed SHA-256, add
+`--expected-sha256` followed by its 64-character lowercase digest. A mismatch
+returns a nonzero exit code and no JSON. Successful output goes to stdout; no
+file, registry or approved review is written. Redirect stdout to your chosen
+private review location if needed. The tool never executes or renders the file.
+
+The output contains a canonical URL and SHA-256 source record, plus a
+`reviewDraft` with `support: "unreviewed"` and unresolved human-assessment fields.
+Its top-level `status` is `pending`. It cannot qualify as reviewed evidence.
+`preparedAt` records preparation time only: event, publication, retrieval,
+verification and expiry times remain unset. The submitted URL is retained
+separately for comparison with canonicalization.
+
+The CLI reads exact binary bytes, at most 16 MiB, from a regular file. It rejects
+final-component symlinks, directories, devices and named pipes, and detects
+size/metadata changes during reading. It requires Linux/macOS-style safe file
+flags. Intermediate directory symlinks are not a sandbox boundary; run it only
+on paths you are authorized to read. A stable hash does not establish the file's
+origin, completeness, truth or publication time. Private evidence contents must
+not be committed to a public repository.
+
+For offline JavaScript use, `prepareEvidence(bytes, url, evaluationDate)` prepares
+the pending record; `verifyDocument(bytes, expectedDigest)` checks exact supplied
+bytes. Both accept `Uint8Array`/`Buffer`, preserving typed-array slice boundaries.
+
+Collection limits reject oversized evaluations: 256 source records and 256
+indicators per signal, 256 signals per batch, 1,024 registered sources (up to 16
+hosts each), and 4,096 claim reviews. These are count limits, not a replacement
+for request-byte limits and authenticated policy loading in a future service.
+
 ## Deterministic validation and limitations
 
 Run from the repository root:
 
 ```sh
-node --test sentinel/sentinel.test.mjs
+node --test sentinel/sentinel.test.mjs sentinel/prepare-evidence.test.mjs
 npm test
 python -m unittest discover -s sentinel/tests -v
 ```

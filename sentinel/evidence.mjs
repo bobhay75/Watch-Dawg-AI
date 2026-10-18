@@ -1,6 +1,8 @@
 // Offline policy enforcement. Caller-supplied reviews are trusted configuration,
 // never facts inferred by this module or fields accepted from a signal payload.
 const HOUR = 3600000;
+export const LIMITS = Object.freeze({sources:256, registrySources:1024, reviews:4096, batch:256, indicators:256});
+const identity = value => typeof value === 'string' && value.length <= 128 && value === value.trim() && /^[a-z0-9]+(?:[-_.:][a-z0-9]+)*$/.test(value);
 const text = value => typeof value === 'string' && value.trim().length > 0;
 export function timestamp(value) {
   // Require an actual UTC instant; Date.parse alone normalizes impossible dates.
@@ -26,11 +28,11 @@ export function canonicalURL(raw) {
 }
 
 export function validateRegistry(registry, now) {
-  if (!registry || registry.version !== 1 || !Array.isArray(registry.sources)) throw new TypeError('Invalid source registry');
+  if (!registry || registry.version !== 1 || !Array.isArray(registry.sources) || registry.sources.length > LIMITS.registrySources) throw new TypeError('Invalid source registry');
   const hosts = new Map(), ids = new Set();
   for (const source of registry.sources) {
-    if (!source || !['id','ownerId','editorialGroupId','reviewer','reviewNote'].every(k => text(source[k])) ||
-        !['approved','pending','revoked'].includes(source.status) || !Array.isArray(source.hosts) || !source.hosts.length ||
+    if (!source || !['id','ownerId','editorialGroupId'].every(k => identity(source[k])) || !['reviewer','reviewNote'].every(k => text(source[k])) ||
+        !['approved','pending','revoked'].includes(source.status) || !Array.isArray(source.hosts) || !source.hosts.length || source.hosts.length > 16 ||
         !Array.isArray(source.reviewReferences) || !source.reviewReferences.length ||
         !source.reviewReferences.every(text) || ids.has(source.id) ||
         !Number.isFinite(timestamp(source.reviewedAt)) || !Number.isFinite(timestamp(source.expiresAt)) ||
@@ -46,7 +48,7 @@ export function validateRegistry(registry, now) {
 
 export function verifyEvidence(input, now, registry, reviews, severity) {
   const hosts = validateRegistry(registry, now);
-  if (!Array.isArray(reviews)) throw new TypeError('Evidence reviews array required');
+  if (!Array.isArray(reviews) || reviews.length > LIMITS.reviews) throw new TypeError('Evidence reviews array required');
   const candidates = [], rejected = [], seenURLs = new Set(), seenHashes = new Set();
   const eventTime = timestamp(input.observedAt);
   for (let index = 0; index < input.sources.length; index++) {
@@ -56,7 +58,7 @@ export function verifyEvidence(input, now, registry, reviews, severity) {
     try { url = canonicalURL(evidence?.url); } catch { reject('INVALID_URL'); continue; }
     const source = hosts.get(new URL(url).hostname);
     if (!source?.active) { reject('SOURCE_NOT_APPROVED'); continue; }
-    if (typeof evidence?.contentSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(evidence.contentSha256)) { reject('MISSING_CONTENT_DIGEST'); continue; }
+    if (typeof evidence?.contentSha256 !== 'string' || evidence.contentSha256.length !== 64 || !/^[a-f0-9]{64}$/.test(evidence.contentSha256)) { reject('MISSING_CONTENT_DIGEST'); continue; }
     // Only an exact reviewed claim and preserved document may qualify. Signal
     // flags, source IDs, ownership assertions and supplied dates grant no trust.
     const matches = reviews.filter(r => r && r.url === url && r.contentSha256 === evidence.contentSha256 && r.claimId === input.id);
@@ -65,7 +67,7 @@ export function verifyEvidence(input, now, registry, reviews, severity) {
     if (r.sourceId !== source.id || r.category !== input.category || r.headline !== input.headline ||
         timestamp(r.eventAt) !== eventTime || r.support !== 'direct' ||
         !Number.isInteger(r.maxImpact) || r.maxImpact < severity || r.maxImpact > 4 ||
-        !['id','reviewer','reviewNote','originId','documentId'].every(k => text(r[k]))) { reject('UNSUPPORTED_CLAIM'); continue; }
+        !['id','originId','documentId'].every(k => identity(r[k])) || !['reviewer','reviewNote'].every(k => text(r[k]))) { reject('UNSUPPORTED_CLAIM'); continue; }
     const published = timestamp(r.publishedAt), retrieved = timestamp(r.retrievedAt), verified = timestamp(r.verifiedAt), expires = timestamp(r.expiresAt);
     if (![published,retrieved,verified,expires].every(Number.isFinite) ||
         eventTime > retrieved || published > retrieved || retrieved > verified || verified > now ||

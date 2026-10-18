@@ -116,3 +116,25 @@ test('separate aliases of the same registered source cannot corroborate',()=>{
 });
 test('changing the claim ID cannot reuse a review',()=>{const f=setup();f.signal.id='different';blocked(f,'NO_CLAIM_REVIEW');});
 test('unsupported second report never corroborates',()=>{const f=setup();f.evidenceReviews[1].support='mentions';assert.equal(blocked(f,'UNSUPPORTED_CLAIM').sourceCount,1);});
+for (const key of ['id','ownerId','editorialGroupId']) {
+ for(const value of ['Owner-alpha','owner-alpha ',' owner-alpha','owner\nalpha','owner-alpha\n','owner-alpha\r']) test(`registry identity ${key}=${JSON.stringify(value)} cannot disguise dependence`,()=>{
+  const f=setup();f.registry.sources[1][key]=value;assert.throws(()=>assess(f),TypeError);
+ });
+}
+for (const key of ['id','originId','documentId']) test(`review identity ${key} cannot use whitespace or case aliases`,()=>{
+ const f=setup();f.evidenceReviews[1][key]='Origin-alpha ';blocked(f,'UNSUPPORTED_CLAIM');
+});
+test('oversized evidence and indicator collections fail closed',()=>{
+ const f=setup();f.signal.sources=Array(257).fill(f.signal.sources[0]);assert.throws(()=>assess(f),TypeError);
+ f.signal.sources=[];f.signal.indicators=Array(257).fill({impact:3});assert.throws(()=>assess(f),TypeError);
+});
+test('oversized registry, review and batch inputs are rejected',()=>{
+ const f=setup();f.registry.sources=Array(1025).fill(f.registry.sources[0]);assert.throws(()=>assess(f),TypeError);
+ const g=setup();g.evidenceReviews=Array(4097).fill(g.evidenceReviews[0]);assert.throws(()=>assess(g),TypeError);
+ assert.throws(()=>evaluateBatch(Array(257).fill(g.signal),g.now,g),TypeError);
+});
+
+test('digest with trailing newline is rejected even if an injected review matches it',()=>{
+ const f=setup();f.signal.sources[1].contentSha256+='\n';f.evidenceReviews[1].contentSha256+='\n';
+ blocked(f,'MISSING_CONTENT_DIGEST');
+});

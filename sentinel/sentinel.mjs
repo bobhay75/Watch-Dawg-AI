@@ -1,6 +1,6 @@
 // DAWG Sentinel: deterministic, offline, review-only triage.
 import {readFileSync} from 'node:fs';
-import {timestamp, verifyEvidence} from './evidence.mjs';
+import {timestamp, verifyEvidence, LIMITS} from './evidence.mjs';
 const DEFAULT_REGISTRY = JSON.parse(readFileSync(new URL('./source-registry.json', import.meta.url), 'utf8'));
 export const CATEGORIES = Object.freeze(['geopolitical','economic','cybersecurity','ai','infrastructure','environmental','social']);
 const LEVELS = ['LOW','GUARDED','ELEVATED','HIGH','CRITICAL'];
@@ -9,7 +9,8 @@ export function assessSignal(input, now = new Date(), {registry = DEFAULT_REGIST
   const {id, category, headline, sources, observedAt, indicators = []} = input;
   if (typeof id !== 'string' || !id.trim() || !CATEGORIES.includes(category) ||
       typeof headline !== 'string' || !headline.trim() ||
-      !Array.isArray(sources) || !Array.isArray(indicators)) throw new TypeError('Invalid signal');
+      !Array.isArray(sources) || sources.length > LIMITS.sources ||
+      !Array.isArray(indicators) || indicators.length > LIMITS.indicators) throw new TypeError('Invalid signal');
   if (!(now instanceof Date) || !Number.isFinite(now.getTime())) throw new TypeError('Invalid evaluation clock');
   const observed = timestamp(observedAt);
   if (!Number.isFinite(observed)) throw new TypeError('Observation must be a valid UTC ISO timestamp');
@@ -29,7 +30,7 @@ export function assessSignal(input, now = new Date(), {registry = DEFAULT_REGIST
     indicators};
 }
 export function evaluateBatch(signals, now = new Date(), options = {}) {
-  if (!Array.isArray(signals)) throw new TypeError('Signals array required');
+  if (!Array.isArray(signals) || signals.length > LIMITS.batch) throw new TypeError('Signals array required');
   const unique = new Map();
   for (const signal of signals) {
     const result = assessSignal(signal,now,options);
