@@ -13,7 +13,7 @@ from collections.abc import Callable, Mapping
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Protocol
 from urllib.parse import urlsplit
 
 from .ai_system_watch import AiSystemRiskWatchPack
@@ -25,16 +25,47 @@ from .log_watch import AccessLogWatchPack
 from .secret_watch import SecretExposureWatchPack
 from .service_watch import ServiceExposureWatchPack
 from .sitemap_watch import SitemapWatchPack
+from .swarm_proof import load_proof_hmac_key
+from .swarm_watch import SwarmDefenseWatchPack
 
 
 LOGGER = logging.getLogger("watch_dawg.sentinel.api")
 PROFILE_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 MAX_PROFILE_COUNT: Final[int] = 50
 MAX_REQUEST_BYTES: Final[int] = 2_048
+MAX_SWARM_REQUEST_BYTES: Final[int] = 512_000
 MIN_TOKEN_LENGTH: Final[int] = 32
 DEFAULT_RATE_LIMIT_PER_MINUTE: Final[int] = 10
 DEFAULT_PROFILE_COOLDOWN_SECONDS: Final[int] = 60
+DEFAULT_REQUEST_TIMEOUT_SECONDS: Final[float] = 15.0
 Runner = Callable[[Path, Path], dict[str, Any]]
+
+
+def _strict_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def _reject_nonfinite_json(value: str) -> None:
+    raise ValueError(f"non-finite JSON number: {value}")
+
+
+class SwarmIngestor(Protocol):
+    enrollments: Mapping[str, Any]
+
+    def preauthenticate(self, device_id: str, bearer_token: str) -> None: ...
+
+    def ingest(
+        self,
+        envelope: Mapping[str, Any],
+        bearer_token: str,
+        *,
+        preauthenticated_device_id: str | None = None,
+    ) -> dict[str, Any]: ...
 
 
 class ApiError(Exception):
@@ -103,6 +134,27 @@ class ProfileRateLimiter:
             self._profile_last_run[profile] = now
 
 
+class SentinelHttpServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def __init__(
+        self,
+        server_address: tuple[str, int],
+        handler: type[BaseHTTPRequestHandler],
+        *,
+        request_timeout: float = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    ) -> None:
+        if not 1 <= request_timeout <= 120:
+            raise ValueError("request_timeout must be between 1 and 120 seconds")
+        self.request_timeout = request_timeout
+        super().__init__(server_address, handler)
+
+    def get_request(self):
+        connection, address = super().get_request()
+        connection.settimeout(self.request_timeout)
+        return connection, address
+
+
 def validate_api_token(token: str | None) -> str:
     if not token or len(token) < MIN_TOKEN_LENGTH:
         raise ValueError(
@@ -148,6 +200,11 @@ def run_profile(config_path: Path, state_path: Path) -> dict[str, Any]:
     log_root = Path(config.get("log_root", "."))
     secret_root = Path(config.get("secret_root", "."))
     ai_manifest_root = Path(config.get("ai_manifest_root", "."))
+    swarm_snapshot_root = Path(config.get("swarm_snapshot_root", "."))
+    proof_hmac_key = load_proof_hmac_key(
+        os.environ.get("SENTINEL_SWARM_PROOF_HMAC_KEY_BASE64"),
+        required=False,
+    )
     engine = SentinelEngine(
         StateStore(state_path),
         [
@@ -158,6 +215,10 @@ def run_profile(config_path: Path, state_path: Path) -> dict[str, Any]:
             ServiceExposureWatchPack(),
             SecretExposureWatchPack(secret_root),
             AiSystemRiskWatchPack(ai_manifest_root),
+            SwarmDefenseWatchPack(
+                swarm_snapshot_root,
+                proof_hmac_key=proof_hmac_key,
+            ),
         ],
     )
     return engine.run(config["targets"])
@@ -172,12 +233,14 @@ class SentinelApiService:
         state_root: Path,
         rate_limiter: ProfileRateLimiter | None = None,
         runner: Runner = run_profile,
+        swarm_ingestor: SwarmIngestor | None = None,
     ) -> None:
         self.token = validate_api_token(token)
         self.profiles = dict(profiles)
         self.state_root = state_root
         self.rate_limiter = rate_limiter or ProfileRateLimiter()
         self.runner = runner
+        self.swarm_ingestor = swarm_ingestor
         self._run_locks = {
             profile: threading.Lock()
             for profile in self.profiles
@@ -236,14 +299,36 @@ def build_handler(service: SentinelApiService) -> type[BaseHTTPRequestHandler]:
 
         def do_POST(self) -> None:
             try:
-                if self._path() != "/v1/run":
+                path = self._path()
+                if path == "/v1/swarm/snapshot":
+                    if service.swarm_ingestor is None:
+                        raise ApiError(
+                            HTTPStatus.NOT_FOUND,
+                            "not_found",
+                            "Route not found.",
+                        )
+                    device_id = self._single_header("X-WatchDawg-Device-ID")
+                    bearer_token = self._bearer_token()
+                    service.swarm_ingestor.preauthenticate(
+                        device_id,
+                        bearer_token,
+                    )
+                    payload = self._read_json_body(MAX_SWARM_REQUEST_BYTES)
+                    result = service.swarm_ingestor.ingest(
+                        payload,
+                        bearer_token,
+                        preauthenticated_device_id=device_id,
+                    )
+                    self._send_json(HTTPStatus.CREATED, result)
+                    return
+                if path != "/v1/run":
                     raise ApiError(
                         HTTPStatus.NOT_FOUND,
                         "not_found",
                         "Route not found.",
                     )
                 self._require_authentication()
-                payload = self._read_json_body()
+                payload = self._read_json_body(MAX_REQUEST_BYTES)
                 if set(payload) != {"profile"}:
                     raise ApiError(
                         HTTPStatus.BAD_REQUEST,
@@ -260,13 +345,21 @@ def build_handler(service: SentinelApiService) -> type[BaseHTTPRequestHandler]:
                 self._send_json(HTTPStatus.OK, service.run(profile))
             except ApiError as exc:
                 self._send_error(exc)
+            except TimeoutError:
+                self._send_error(
+                    ApiError(
+                        HTTPStatus.REQUEST_TIMEOUT,
+                        "request_timeout",
+                        "The request body was not received within the time limit.",
+                    )
+                )
             except Exception:
                 LOGGER.exception("Sentinel API request failed")
                 self._send_error(
                     ApiError(
                         HTTPStatus.INTERNAL_SERVER_ERROR,
                         "internal_error",
-                        "The approved profile could not be checked.",
+                        "The Sentinel request could not be completed.",
                     )
                 )
 
@@ -305,9 +398,7 @@ def build_handler(service: SentinelApiService) -> type[BaseHTTPRequestHandler]:
             return urlsplit(self.path).path
 
         def _require_authentication(self) -> None:
-            value = self.headers.get("Authorization", "")
-            prefix = "Bearer "
-            supplied = value[len(prefix):] if value.startswith(prefix) else ""
+            supplied = self._bearer_token()
             if not supplied or not hmac.compare_digest(supplied, service.token):
                 raise ApiError(
                     HTTPStatus.UNAUTHORIZED,
@@ -316,7 +407,16 @@ def build_handler(service: SentinelApiService) -> type[BaseHTTPRequestHandler]:
                     headers={"WWW-Authenticate": "Bearer"},
                 )
 
-        def _read_json_body(self) -> dict[str, Any]:
+        def _bearer_token(self) -> str:
+            value = self._single_header("Authorization")
+            prefix = "Bearer "
+            return value[len(prefix):] if value.startswith(prefix) else ""
+
+        def _single_header(self, name: str) -> str:
+            values = self.headers.get_all(name, [])
+            return values[0] if len(values) == 1 else ""
+
+        def _read_json_body(self, max_bytes: int) -> dict[str, Any]:
             content_type = self.headers.get("Content-Type", "")
             if content_type.split(";", 1)[0].strip().lower() != "application/json":
                 raise ApiError(
@@ -324,12 +424,31 @@ def build_handler(service: SentinelApiService) -> type[BaseHTTPRequestHandler]:
                     "unsupported_media_type",
                     "Content-Type must be application/json.",
                 )
-            raw_length = self.headers.get("Content-Length")
-            if raw_length is None:
+            if self.headers.get("Transfer-Encoding") is not None:
+                raise ApiError(
+                    HTTPStatus.BAD_REQUEST,
+                    "unsupported_transfer_encoding",
+                    "Transfer-Encoding is not accepted; send one Content-Length.",
+                )
+            length_values = self.headers.get_all("Content-Length", [])
+            if not length_values:
                 raise ApiError(
                     HTTPStatus.LENGTH_REQUIRED,
                     "length_required",
                     "Content-Length is required.",
+                )
+            if len(length_values) != 1:
+                raise ApiError(
+                    HTTPStatus.BAD_REQUEST,
+                    "invalid_content_length",
+                    "Exactly one Content-Length header is required.",
+                )
+            raw_length = length_values[0]
+            if re.fullmatch(r"[0-9]+", raw_length) is None:
+                raise ApiError(
+                    HTTPStatus.BAD_REQUEST,
+                    "invalid_content_length",
+                    "Content-Length must contain only ASCII decimal digits.",
                 )
             try:
                 length = int(raw_length)
@@ -345,16 +464,20 @@ def build_handler(service: SentinelApiService) -> type[BaseHTTPRequestHandler]:
                     "empty_request",
                     "A JSON request body is required.",
                 )
-            if length > MAX_REQUEST_BYTES:
+            if length > max_bytes:
                 raise ApiError(
                     HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
                     "request_too_large",
-                    f"Request bodies may not exceed {MAX_REQUEST_BYTES} bytes.",
+                    f"Request bodies may not exceed {max_bytes} bytes.",
                 )
             body = self.rfile.read(length)
             try:
-                payload = json.loads(body.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                payload = json.loads(
+                    body.decode("utf-8"),
+                    object_pairs_hook=_strict_json_object,
+                    parse_constant=_reject_nonfinite_json,
+                )
+            except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
                 raise ApiError(
                     HTTPStatus.BAD_REQUEST,
                     "invalid_json",
@@ -400,10 +523,19 @@ def build_handler(service: SentinelApiService) -> type[BaseHTTPRequestHandler]:
             self.wfile.write(body)
 
         def log_message(self, message_format: str, *args: Any) -> None:
+            path = self._path()
+            route = (
+                path
+                if path in {"/healthz", "/v1/run", "/v1/swarm/snapshot"}
+                else "<unmatched>"
+            )
+            status = str(args[1]) if len(args) > 1 else "unknown"
             LOGGER.info(
-                "request from %s: %s",
+                "request from %s: method=%s route=%s status=%s",
                 self.client_address[0],
-                message_format % args,
+                self.command,
+                route,
+                status,
             )
 
     return SentinelRequestHandler
@@ -429,11 +561,79 @@ def build_service_from_env() -> SentinelApiService:
             str(DEFAULT_PROFILE_COOLDOWN_SECONDS),
         )
     )
+    swarm_ingestor = None
+    enrollment_json = os.environ.get("SENTINEL_SWARM_ENROLLMENTS_JSON")
+    enrollment_file = os.environ.get("SENTINEL_SWARM_ENROLLMENTS_FILE")
+    proof_hmac_key = load_proof_hmac_key(
+        os.environ.get("SENTINEL_SWARM_PROOF_HMAC_KEY_BASE64"),
+        required=bool(enrollment_json or enrollment_file),
+    )
+    if enrollment_json or enrollment_file:
+        assert proof_hmac_key is not None
+        from .swarm_ingest import (
+            DEFAULT_DEVICE_COOLDOWN_SECONDS,
+            DEFAULT_HISTORY_MAX_ENTRIES_PER_DEVICE,
+            DEFAULT_INGEST_RATE_LIMIT_PER_MINUTE,
+            SwarmIngestRateLimiter,
+            SwarmSnapshotIngestor,
+            load_swarm_enrollment_source,
+        )
+
+        snapshot_root = Path(
+            os.environ.get(
+                "SENTINEL_SWARM_SNAPSHOT_ROOT",
+                str(state_root / "swarm-snapshots"),
+            )
+        )
+        enrollments = load_swarm_enrollment_source(
+            inline_json=enrollment_json,
+            file_path=enrollment_file,
+            snapshot_root=snapshot_root,
+        )
+        if not enrollments:
+            raise ValueError(
+                "Swarm ingestion requires at least one enrolled device"
+            )
+        replay_state_path = Path(
+            os.environ.get(
+                "SENTINEL_SWARM_REPLAY_STATE_PATH",
+                str(state_root / "swarm-replay.sqlite3"),
+            )
+        )
+        history_max_entries_per_device = int(
+            os.environ.get(
+                "SENTINEL_SWARM_HISTORY_MAX_ENTRIES_PER_DEVICE",
+                str(DEFAULT_HISTORY_MAX_ENTRIES_PER_DEVICE),
+            )
+        )
+        ingest_rate_limit = int(
+            os.environ.get(
+                "SENTINEL_SWARM_RATE_LIMIT_PER_MINUTE",
+                str(DEFAULT_INGEST_RATE_LIMIT_PER_MINUTE),
+            )
+        )
+        device_cooldown_seconds = float(
+            os.environ.get(
+                "SENTINEL_SWARM_DEVICE_COOLDOWN_SECONDS",
+                str(DEFAULT_DEVICE_COOLDOWN_SECONDS),
+            )
+        )
+        swarm_ingestor = SwarmSnapshotIngestor(
+            enrollments=enrollments,
+            replay_state_path=replay_state_path,
+            proof_hmac_key=proof_hmac_key,
+            history_max_entries_per_device=history_max_entries_per_device,
+            rate_limiter=SwarmIngestRateLimiter(
+                ingest_rate_limit,
+                device_cooldown_seconds,
+            ),
+        )
     return SentinelApiService(
         token=token,
         profiles=profiles,
         state_root=state_root,
         rate_limiter=ProfileRateLimiter(max_per_minute, cooldown_seconds),
+        swarm_ingestor=swarm_ingestor,
     )
 
 
@@ -442,7 +642,17 @@ def main() -> None:
     service = build_service_from_env()
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8080"))
-    server = ThreadingHTTPServer((host, port), build_handler(service))
+    request_timeout = float(
+        os.environ.get(
+            "SENTINEL_REQUEST_TIMEOUT_SECONDS",
+            str(DEFAULT_REQUEST_TIMEOUT_SECONDS),
+        )
+    )
+    server = SentinelHttpServer(
+        (host, port),
+        build_handler(service),
+        request_timeout=request_timeout,
+    )
     LOGGER.info(
         "Sentinel API listening on %s:%s with %s approved profile(s)",
         host,
