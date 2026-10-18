@@ -8,6 +8,7 @@ from typing import Any
 from .ai_system_watch import AiSystemRiskWatchPack
 from .core import SentinelEngine, StateStore
 from .domain_watch import DnsTlsWatchPack
+from .evidence_store import ContentAddressedEvidenceStore
 from .http_watch import HttpWatchPack
 from .log_watch import AccessLogWatchPack
 from .secret_watch import SecretExposureWatchPack
@@ -36,10 +37,11 @@ def main() -> int:
     log_root = Path(config.get("log_root", "."))
     secret_root = Path(config.get("secret_root", "."))
     ai_manifest_root = Path(config.get("ai_manifest_root", "."))
+    evidence_root = Path(config.get("evidence_root", ".sentinel/evidence"))
     engine = SentinelEngine(
         StateStore(args.state),
         [
-            HttpWatchPack(),
+            HttpWatchPack(evidence_store=ContentAddressedEvidenceStore(evidence_root)),
             DnsTlsWatchPack(),
             SitemapWatchPack(),
             AccessLogWatchPack(log_root),
