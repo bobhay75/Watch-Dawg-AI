@@ -1,0 +1,223 @@
+{
+  "now": "2026-10-17T12:00:00Z",
+  "registry": {
+    "version": 1,
+    "sources": [
+      {
+        "id": "alpha",
+        "hosts": [
+          "alpha.example.org"
+        ],
+        "ownerId": "owner-alpha",
+        "editorialGroupId": "desk-alpha",
+        "status": "approved",
+        "reviewer": "fixture-reviewer",
+        "reviewedAt": "2026-10-16T12:00:00Z",
+        "expiresAt": "2026-11-16T12:00:00Z",
+        "reviewNote": "SYNTHETIC TEST ONLY: ownership and editorial control are stipulated, not verified real organizations.",
+        "reviewReferences": [
+          "fixture:synthetic-ownership-record"
+        ]
+      },
+      {
+        "id": "beta",
+        "hosts": [
+          "beta.example.org"
+        ],
+        "ownerId": "owner-beta",
+        "editorialGroupId": "desk-beta",
+        "status": "approved",
+        "reviewer": "fixture-reviewer",
+        "reviewedAt": "2026-10-16T12:00:00Z",
+        "expiresAt": "2026-11-16T12:00:00Z",
+        "reviewNote": "SYNTHETIC TEST ONLY: ownership and editorial control are stipulated, not verified real organizations.",
+        "reviewReferences": [
+          "fixture:synthetic-ownership-record"
+        ]
+      },
+      {
+        "id": "sibling",
+        "hosts": [
+          "sibling.example.org"
+        ],
+        "ownerId": "owner-alpha",
+        "editorialGroupId": "desk-sibling",
+        "status": "approved",
+        "reviewer": "fixture-reviewer",
+        "reviewedAt": "2026-10-16T12:00:00Z",
+        "expiresAt": "2026-11-16T12:00:00Z",
+        "reviewNote": "SYNTHETIC TEST ONLY: ownership and editorial control are stipulated, not verified real organizations.",
+        "reviewReferences": [
+          "fixture:synthetic-ownership-record"
+        ]
+      },
+      {
+        "id": "syndicated",
+        "hosts": [
+          "syndicated.example.org"
+        ],
+        "ownerId": "owner-syndicated",
+        "editorialGroupId": "desk-syndicated",
+        "status": "approved",
+        "reviewer": "fixture-reviewer",
+        "reviewedAt": "2026-10-16T12:00:00Z",
+        "expiresAt": "2026-11-16T12:00:00Z",
+        "reviewNote": "SYNTHETIC TEST ONLY: ownership and editorial control are stipulated, not verified real organizations.",
+        "reviewReferences": [
+          "fixture:synthetic-ownership-record"
+        ]
+      },
+      {
+        "id": "mirror",
+        "hosts": [
+          "mirror.example.org"
+        ],
+        "ownerId": "owner-mirror",
+        "editorialGroupId": "desk-mirror",
+        "status": "approved",
+        "reviewer": "fixture-reviewer",
+        "reviewedAt": "2026-10-16T12:00:00Z",
+        "expiresAt": "2026-11-16T12:00:00Z",
+        "reviewNote": "SYNTHETIC TEST ONLY: ownership and editorial control are stipulated, not verified real organizations.",
+        "reviewReferences": [
+          "fixture:synthetic-ownership-record"
+        ]
+      }
+    ]
+  },
+  "evidenceReviews": [
+    {
+      "id": "review-alpha",
+      "url": "https://alpha.example.org/report",
+      "contentSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "sourceId": "alpha",
+      "claimId": "a",
+      "category": "cybersecurity",
+      "headline": "Synthetic outage",
+      "eventAt": "2026-10-17T10:00:00Z",
+      "publishedAt": "2026-10-17T10:30:00Z",
+      "retrievedAt": "2026-10-17T11:00:00Z",
+      "verifiedAt": "2026-10-17T11:30:00Z",
+      "expiresAt": "2026-10-18T12:00:00Z",
+      "maxImpact": 3,
+      "support": "direct",
+      "reviewer": "fixture-reviewer",
+      "reviewNote": "SYNTHETIC TEST ONLY: fixture stipulates exact claim support and original reporting.",
+      "originId": "origin-alpha",
+      "documentId": "doc-alpha"
+    },
+    {
+      "id": "review-beta",
+      "url": "https://beta.example.org/report",
+      "contentSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "sourceId": "beta",
+      "claimId": "a",
+      "category": "cybersecurity",
+      "headline": "Synthetic outage",
+      "eventAt": "2026-10-17T10:00:00Z",
+      "publishedAt": "2026-10-17T10:30:00Z",
+      "retrievedAt": "2026-10-17T11:00:00Z",
+      "verifiedAt": "2026-10-17T11:30:00Z",
+      "expiresAt": "2026-10-18T12:00:00Z",
+      "maxImpact": 3,
+      "support": "direct",
+      "reviewer": "fixture-reviewer",
+      "reviewNote": "SYNTHETIC TEST ONLY: fixture stipulates exact claim support and original reporting.",
+      "originId": "origin-beta",
+      "documentId": "doc-beta"
+    },
+    {
+      "id": "review-sibling",
+      "url": "https://sibling.example.org/report",
+      "contentSha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "sourceId": "sibling",
+      "claimId": "a",
+      "category": "cybersecurity",
+      "headline": "Synthetic outage",
+      "eventAt": "2026-10-17T10:00:00Z",
+      "publishedAt": "2026-10-17T10:30:00Z",
+      "retrievedAt": "2026-10-17T11:00:00Z",
+      "verifiedAt": "2026-10-17T11:30:00Z",
+      "expiresAt": "2026-10-18T12:00:00Z",
+      "maxImpact": 3,
+      "support": "direct",
+      "reviewer": "fixture-reviewer",
+      "reviewNote": "SYNTHETIC TEST ONLY: fixture stipulates exact claim support and original reporting.",
+      "originId": "origin-sibling",
+      "documentId": "doc-sibling"
+    },
+    {
+      "id": "review-syndicated",
+      "url": "https://syndicated.example.org/report",
+      "contentSha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "sourceId": "syndicated",
+      "claimId": "a",
+      "category": "cybersecurity",
+      "headline": "Synthetic outage",
+      "eventAt": "2026-10-17T10:00:00Z",
+      "publishedAt": "2026-10-17T10:30:00Z",
+      "retrievedAt": "2026-10-17T11:00:00Z",
+      "verifiedAt": "2026-10-17T11:30:00Z",
+      "expiresAt": "2026-10-18T12:00:00Z",
+      "maxImpact": 3,
+      "support": "direct",
+      "reviewer": "fixture-reviewer",
+      "reviewNote": "SYNTHETIC TEST ONLY: fixture stipulates exact claim support and original reporting.",
+      "originId": "origin-alpha",
+      "documentId": "doc-syndicated"
+    },
+    {
+      "id": "review-mirror",
+      "url": "https://mirror.example.org/report",
+      "contentSha256": "5555555555555555555555555555555555555555555555555555555555555555",
+      "sourceId": "mirror",
+      "claimId": "a",
+      "category": "cybersecurity",
+      "headline": "Synthetic outage",
+      "eventAt": "2026-10-17T10:00:00Z",
+      "publishedAt": "2026-10-17T10:30:00Z",
+      "retrievedAt": "2026-10-17T11:00:00Z",
+      "verifiedAt": "2026-10-17T11:30:00Z",
+      "expiresAt": "2026-10-18T12:00:00Z",
+      "maxImpact": 3,
+      "support": "direct",
+      "reviewer": "fixture-reviewer",
+      "reviewNote": "SYNTHETIC TEST ONLY: fixture stipulates exact claim support and original reporting.",
+      "originId": "origin-mirror",
+      "documentId": "doc-alpha"
+    }
+  ],
+  "signal": {
+    "id": "a",
+    "category": "cybersecurity",
+    "headline": "Synthetic outage",
+    "observedAt": "2026-10-17T10:00:00Z",
+    "indicators": [
+      {
+        "impact": 3
+      }
+    ],
+    "sources": [
+      {
+        "url": "https://alpha.example.org/report",
+        "contentSha256": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      {
+        "url": "https://beta.example.org/report",
+        "contentSha256": "2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      {
+        "url": "https://sibling.example.org/report",
+        "contentSha256": "3333333333333333333333333333333333333333333333333333333333333333"
+      },
+      {
+        "url": "https://syndicated.example.org/report",
+        "contentSha256": "4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      {
+        "url": "https://mirror.example.org/report",
+        "contentSha256": "5555555555555555555555555555555555555555555555555555555555555555"
+      }
+    ]
+  }
+}
