@@ -37,6 +37,14 @@ itself, and must never map user/AI-submitted data into that argument. An LLM mus
 not approve source credibility, ownership, editorial independence, origin IDs,
 claim support, or timestamps. Supplying a reviewer string is not authentication.
 
+## Pending real-source research
+
+The [cybersecurity source review packet](reviews/cybersecurity-source-review-2026-10-19.md)
+records primary-source identity evidence, retrieval gaps and unresolved
+independence questions for CISA, NIST/NVD and CERT/CC. It is a human-review
+worksheet only: it grants no approvals and is not loaded by the classifier,
+preparation tool or dossier runner. The default registry remains empty.
+
 ## Source registry v1
 
 Top-level shape: `{ "version": 1, "sources": [...] }`.
