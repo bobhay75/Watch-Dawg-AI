@@ -1,0 +1,2 @@
+SYNTHETIC TEST EVIDENCE ONLY. No real outage is claimed.
+Stipulated original report from fixture source beta: synthetic event a at 2026-10-17T10:00:00Z.
