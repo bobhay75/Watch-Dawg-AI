@@ -1,0 +1,17 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {planGateway} from "./gateway-dry-run.mjs";
+const mac="aa:bb:cc:dd:ee:ff";
+const devices=[{mac,mode:"approved",destinations:["example.org"]}];
+const leases=[{mac,ip:"192.168.8.10"}];
+const run=(extra={})=>planGateway({devices,leases,connections:[{mac,sourceIp:"192.168.8.10",destination:"example.org"}],...extra});
+test("approved request remains simulated",()=>{const r=run();assert.equal(r.decisions[0].decision,"allow");assert.equal(r.decisions[0].enforced,false);assert.equal(r.commandsExecuted,0)});
+test("unknown source IP denied",()=>assert.equal(run({leases:[]}).decisions[0].decision,"deny"));
+test("spoofed MAC denied",()=>assert.equal(run({connections:[{mac:"00:00:00:00:00:00",sourceIp:"192.168.8.10",destination:"example.org"}]}).decisions[0].decision,"deny"));
+test("unapproved IPv4 denied",()=>assert.equal(run({connections:[{mac,sourceIp:"192.168.8.10",destination:"8.8.8.8"}]}).decisions[0].decision,"deny"));
+test("IPv6 warning present",()=>assert.match(run().warnings.join(" "),/IPv6/));
+test("DNS bypass warning present",()=>assert.match(run().warnings.join(" "),/DNS bypass/));
+test("reconnection warning present",()=>assert.match(run({gateway:{reconnected:true}}).warnings.join(" "),/Reconnection/));
+test("conflicting lease denied",()=>assert.equal(run({leases:[...leases,{mac:"00:11:22:33:44:55",ip:"192.168.8.10"}]}).decisions[0].decision,"deny"));
+test("rollback requirements explicit",()=>assert.equal(run().rollback.automaticRevertRequired,true));
+test("invalid lease rejected",()=>assert.throws(()=>run({leases:[{mac,ip:"999.1.1.1"}]})));
