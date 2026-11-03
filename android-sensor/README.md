@@ -1,5 +1,7 @@
 # Watch-Dawg Android Sensor
 
+The same Android app now includes the initial native Survival OS V1 field console. See [the Survival OS guide](../docs/SURVIVAL-OS-V1.md) for device fit, local model setup, build/install steps, and limitations.
+
 This directory contains an installable, non-root Android collector. It gathers
 real evidence exposed by supported Android APIs, signs each snapshot with a
 device-held ECDSA P-256 key, and can manually deliver the signed envelope to a
