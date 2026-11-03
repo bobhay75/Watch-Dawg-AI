@@ -97,6 +97,9 @@ public final class MainActivity extends Activity {
         status.setPadding(0, dp(8), 0, dp(12));
         content.addView(status);
 
+        content.addView(button("Open Survival OS V1", view ->
+                startActivity(new Intent(this, SurvivalActivity.class))));
+
         TextView usageHelp = new TextView(this);
         usageHelp.setText(USAGE_ACCESS_HELP);
         usageHelp.setTextSize(15f);
