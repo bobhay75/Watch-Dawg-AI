@@ -363,11 +363,14 @@ class SurvivalActivity : Activity() {
         try {
             manager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0L, 0f, listener, Looper.getMainLooper())
             handler.postDelayed({
-                locationListener?.let { manager.removeUpdates(it) }
-                locationListener = null
-                status.text = "GPS wait ended without a fresh fix. Try outdoors with Android Location enabled."
+                if (locationListener === listener) {
+                    manager.removeUpdates(listener)
+                    locationListener = null
+                    status.text = "GPS wait ended without a fresh fix. Try outdoors with Android Location enabled."
+                }
             }, LOCATION_TIMEOUT_MS)
         } catch (error: SecurityException) {
+            locationListener = null
             status.text = "Android did not grant location access: " + error.message
         }
     }
