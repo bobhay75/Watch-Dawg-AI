@@ -22,6 +22,7 @@ from .core import SentinelEngine, StateStore
 from .domain_watch import DnsTlsWatchPack
 from .http_watch import HttpWatchPack
 from .log_watch import AccessLogWatchPack
+from .prosper_guard import build_prosper_authorizer
 from .secret_watch import SecretExposureWatchPack
 from .service_watch import ServiceExposureWatchPack
 from .sitemap_watch import SitemapWatchPack
@@ -172,12 +173,14 @@ class SentinelApiService:
         state_root: Path,
         rate_limiter: ProfileRateLimiter | None = None,
         runner: Runner = run_profile,
+        prosper_authorizer: Callable[[], bool] | None = None,
     ) -> None:
         self.token = validate_api_token(token)
         self.profiles = dict(profiles)
         self.state_root = state_root
         self.rate_limiter = rate_limiter or ProfileRateLimiter()
         self.runner = runner
+        self.prosper_authorizer = prosper_authorizer
         self._run_locks = {
             profile: threading.Lock()
             for profile in self.profiles
@@ -206,6 +209,22 @@ class SentinelApiService:
                 "The requested profile is already being checked.",
             )
         try:
+            if self.prosper_authorizer is not None:
+                try:
+                    permitted = self.prosper_authorizer()
+                except Exception:
+                    LOGGER.exception("Prosper Gateway authorization failed")
+                    raise ApiError(
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        "gateway_unavailable",
+                        "Authorization gateway unavailable; execution blocked.",
+                    ) from None
+                if permitted is not True:
+                    raise ApiError(
+                        HTTPStatus.FORBIDDEN,
+                        "gateway_denied",
+                        "Prosper Gateway denied this action.",
+                    )
             self.rate_limiter.claim(profile)
             self.state_root.mkdir(parents=True, exist_ok=True)
             result = self.runner(config_path, self.state_root / f"{profile}.json")
@@ -434,6 +453,7 @@ def build_service_from_env() -> SentinelApiService:
         profiles=profiles,
         state_root=state_root,
         rate_limiter=ProfileRateLimiter(max_per_minute, cooldown_seconds),
+        prosper_authorizer=build_prosper_authorizer(),
     )
 
 
