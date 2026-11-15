@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Watch-Dawg sourced observation v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "source",
+    "observed_at",
+    "retrieved_at",
+    "category",
+    "region",
+    "claim_status",
+    "evidence"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "url",
+        "license_status"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "license_status": {
+          "enum": [
+            "verified",
+            "review_required",
+            "restricted"
+          ]
+        },
+        "license_reference": {
+          "type": "string"
+        }
+      }
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "retrieved_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "category": {
+      "enum": [
+        "aviation",
+        "atmosphere",
+        "earth_observation",
+        "infrastructure",
+        "security"
+      ]
+    },
+    "region": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "country"
+      ],
+      "properties": {
+        "country": {
+          "type": "string",
+          "minLength": 2
+        },
+        "latitude": {
+          "type": "number",
+          "minimum": -90,
+          "maximum": 90
+        },
+        "longitude": {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180
+        },
+        "sensitive": {
+          "type": "boolean"
+        }
+      }
+    },
+    "claim_status": {
+      "enum": [
+        "observed",
+        "corroborated",
+        "unresolved",
+        "contradicted",
+        "corrected"
+      ]
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "url",
+          "kind"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "kind": {
+            "enum": [
+              "primary",
+              "secondary",
+              "counterevidence"
+            ]
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reviewer": {
+          "type": "string"
+        },
+        "reviewed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "publication_approved": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}
