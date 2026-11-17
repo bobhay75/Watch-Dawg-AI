@@ -10,6 +10,11 @@ import pytest
 from fastapi.testclient import TestClient
 from backend.server import create_app, Settings
 from backend.providers import SyntheticProvider
+from backend.tests.security_helpers import (
+    TOKEN,
+    unit_policy,
+    MemorySecurityStore,
+)
 
 
 class MemoryStore:
@@ -31,8 +36,17 @@ class MemoryStore:
 def service():
     store = MemoryStore()
     provider = SyntheticProvider()
-    app = create_app(Settings("", ""), store, provider)
-    with TestClient(app, raise_server_exceptions=False) as client:
+    app = create_app(
+        Settings("", "", test_mode=True),
+        store,
+        provider,
+        policy=unit_policy(),
+        security_store=MemorySecurityStore(),
+    )
+    with TestClient(
+        app, raise_server_exceptions=False, client=("127.0.0.1", 1234)
+    ) as client:
+        client.headers["Authorization"] = "Bearer " + TOKEN
         yield app, client, store.rows
 
 
@@ -58,7 +72,7 @@ def test_health_stream_and_persistence_contract(service):
     response = client.post("/api/ai/audit", json=payload())
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
-    assert response.headers["cache-control"] == "no-cache"
+    assert response.headers["cache-control"] == "no-store"
     result = events(response)
     assert result[0]["delta"].startswith("SYNTHETIC TEST OUTPUT")
     assert result[-1]["done"] is True
@@ -211,8 +225,11 @@ def test_prompt_limits_and_cors_behavior_are_preserved(service):
             "access-control-request-method": "POST",
         },
     )
-    assert response.status_code == 200
-    assert response.headers["access-control-allow-origin"] == "*"
+    assert response.status_code == 204
+    assert (
+        response.headers["access-control-allow-origin"]
+        == "https://synthetic.invalid"
+    )
     assert "access-control-allow-credentials" not in response.headers
     data = payload()
     data["payload"] = "x" * 10000

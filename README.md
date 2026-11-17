@@ -181,10 +181,15 @@ export REACT_APP_BACKEND_URL='http://localhost:8001'
 
 Never commit `.env` files, API keys, credentials, or service-account secrets.
 
-Start the backend:
+The backend now requires a private service-token policy and scoped credentials,
+including for health checks. See [backend security configuration](docs/BACKEND-SECURITY.md)
+to bootstrap private credentials, configure approved networks/CORS/TLS, and deliver
+tokens to authorized clients. There is no authentication-off production mode.
+
+Start the backend after configuring `BACKEND_SECURITY_FILE` and approved transport:
 
 ```bash
-uvicorn backend.server:app --host 127.0.0.1 --port 8001
+uvicorn backend.server:app --host 127.0.0.1 --port 8001 --no-proxy-headers --no-access-log
 ```
 
 Start the frontend in another terminal from the repository root:

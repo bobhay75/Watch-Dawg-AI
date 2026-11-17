@@ -45,8 +45,8 @@ class CompatibleProvider:
         if (
             url.scheme != "https"
             or not url.hostname
-            or url.username
-            or url.password
+            or url.username is not None
+            or url.password is not None
             or url.query
             or url.fragment
             or not api_key

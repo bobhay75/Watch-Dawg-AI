@@ -52,7 +52,12 @@ def api_url():
 def test_concurrent_sessions_are_independent(database):
     def request(_):
         response = requests.post(
-            api_url() + "/api/ai/audit", json=payload(), timeout=15
+            api_url() + "/api/ai/audit",
+            json=payload(),
+            timeout=15,
+            headers={
+                "Authorization": "Bearer " + os.environ["WATCHDAWG_TEST_TOKEN"]
+            },
         )
         assert response.status_code == 200
         import json
@@ -84,7 +89,13 @@ def test_real_insert_failure_partial_stream_and_recovery(database):
         )
         try:
             response = requests.post(
-                api_url() + "/api/ai/audit", json=payload(), timeout=15
+                api_url() + "/api/ai/audit",
+                json=payload(),
+                timeout=15,
+                headers={
+                    "Authorization": "Bearer "
+                    + os.environ["WATCHDAWG_TEST_TOKEN"]
+                },
             )
             if rejected_role == "user":
                 assert response.status_code == 500
@@ -111,7 +122,12 @@ def test_real_insert_failure_partial_stream_and_recovery(database):
                 validationLevel="off",
             )
         response = requests.post(
-            api_url() + "/api/ai/audit", json=payload(), timeout=15
+            api_url() + "/api/ai/audit",
+            json=payload(),
+            timeout=15,
+            headers={
+                "Authorization": "Bearer " + os.environ["WATCHDAWG_TEST_TOKEN"]
+            },
         )
         assert '"done": true' in response.text
 
@@ -124,8 +140,19 @@ def test_async_driver_lifecycle_reopens_without_changing_records(database):
         {"session_id": marker, "role": "synthetic-marker"}
     )
     for _ in range(2):
-        config = Settings(uri, name, provider="synthetic", test_mode=True)
-        with TestClient(create_app(config)) as client:
+        config = Settings(
+            uri,
+            name,
+            provider="synthetic",
+            test_mode=True,
+            security_file=os.environ["BACKEND_SECURITY_FILE"],
+        )
+        with TestClient(
+            create_app(config), client=("127.0.0.1", 1234)
+        ) as client:
+            client.headers["Authorization"] = (
+                "Bearer " + os.environ["WATCHDAWG_TEST_TOKEN"]
+            )
             assert client.get("/api/health").status_code == 200
             assert (
                 '"done": true'
@@ -138,7 +165,6 @@ def test_async_driver_lifecycle_reopens_without_changing_records(database):
 
 def test_unavailable_database_fails_startup():
     import socket
-    from pymongo.errors import ServerSelectionTimeoutError
 
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
@@ -149,7 +175,74 @@ def test_unavailable_database_fails_startup():
             "watchdawg_test_unavailable",
             provider="synthetic",
             test_mode=True,
+            security_file=os.environ["BACKEND_SECURITY_FILE"],
         )
-        with pytest.raises(ServerSelectionTimeoutError):
+        with pytest.raises(
+            RuntimeError, match="database initialization failed"
+        ):
             with TestClient(create_app(config)):
                 pass
+
+
+def test_unauthorized_api_calls_do_not_write_evidence(database):
+    before = database.ai_audit_messages.count_documents({})
+    response = requests.post(
+        api_url() + "/api/ai/audit",
+        json=payload(),
+        timeout=15,
+        headers={"X-Role": "admin", "X-Forwarded-For": "203.0.113.1"},
+    )
+    assert response.status_code == 401
+    assert database.ai_audit_messages.count_documents({}) == before
+
+
+def test_mongo_budgets_and_leases_are_atomic_across_clients(database):
+    import asyncio
+    from datetime import datetime, timezone, timedelta
+    from pymongo import AsyncMongoClient
+    from backend.security import MongoSecurityStore, Limited
+
+    async def run():
+        clients = [AsyncMongoClient(os.environ["MONGO_URL"]) for _ in range(2)]
+        try:
+            stores = [MongoSecurityStore(c[database.name]) for c in clients]
+            key = "synthetic-budget-" + uuid.uuid4().hex
+            expires = datetime.now(timezone.utc) + timedelta(minutes=2)
+
+            async def attempt(index):
+                try:
+                    await stores[index % 2].take(key, 5, expires)
+                    return True
+                except Limited:
+                    return False
+
+            results = await asyncio.gather(*(attempt(i) for i in range(30)))
+            assert sum(results) == 5
+            row = await stores[0].windows.find_one({"_id": key})
+            assert row["count"] == 5
+            lease_key = "synthetic-lease-" + uuid.uuid4().hex
+            first = await stores[0].acquire(lease_key, 1, 120)
+            with pytest.raises(Limited):
+                await stores[1].acquire(lease_key, 1, 120)
+            # Expire only this synthetic lease to test stale-owner release.
+            await stores[0].leases.update_one(
+                {"_id": first[0]},
+                {
+                    "$set": {
+                        "expires_at": datetime.now(timezone.utc)
+                        - timedelta(seconds=1)
+                    }
+                },
+            )
+            second = await stores[1].acquire(lease_key, 1, 120)
+            await stores[0].release(first)
+            with pytest.raises(Limited):
+                await stores[0].acquire(lease_key, 1, 120)
+            await stores[1].release(second)
+            third = await stores[0].acquire(lease_key, 1, 120)
+            await stores[0].release(third)
+        finally:
+            for client in clients:
+                await client.close()
+
+    asyncio.run(run())
