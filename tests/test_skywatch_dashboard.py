@@ -17,6 +17,14 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("<script>",page)
         self.assertIn("&lt;script&gt;",page)
         self.assertIn("PRIVATE DRAFT",page)
+    def test_baseline_skips_empty_legacy_snapshots(self):
+        snapshots=[("a",{"observations":[]}),("b",{"observations":[{"id":"x"}]}),("c",{"observations":[{"id":"x"},{"id":"y"}]})]
+        self.assertEqual(mod.select_baseline(snapshots),snapshots[1][1])
+
+    def test_baseline_unavailable(self):
+        snapshots=[("a",{"observations":[]}),("b",{"observations":[{"id":"x"}]})]
+        self.assertIsNone(mod.select_baseline(snapshots))
+
     def test_empty(self):
         page=mod.render([],{"new":[],"continuing":[],"no_longer_active":[]},"now")
         self.assertIn("Current alerts",page)
