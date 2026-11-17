@@ -163,3 +163,15 @@ def test_small_delta_is_delivered_before_more_network_bytes_arrive():
             await stream.aclose()
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://@synthetic.invalid/v1",
+        "https://:@synthetic.invalid/v1",
+    ],
+)
+def test_provider_rejects_empty_userinfo_authorities(url):
+    with pytest.raises(ValueError):
+        CompatibleProvider(url, "synthetic-key", "synthetic-model")

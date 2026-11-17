@@ -184,8 +184,8 @@ class Policy:
             if (
                 p.scheme != "https"
                 or not p.hostname
-                or p.username
-                or p.password
+                or p.username is not None
+                or p.password is not None
                 or p.path
                 or p.query
                 or p.fragment
@@ -341,7 +341,8 @@ class Security:
                             self.policy.lease_seconds,
                         )
                     )
-        except Exception:
+        except BaseException:
+            # Cancellation must release every slot already acknowledged.
             await self.release(handles)
             raise
         return handles
@@ -452,8 +453,8 @@ class SecurityMiddleware:
             if port is not None and not 1 <= port <= 65535:
                 return await deny(400, "Host is not allowed")
             if (
-                host.username
-                or host.password
+                host.username is not None
+                or host.password is not None
                 or host.path
                 or host.query
                 or host.fragment

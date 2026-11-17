@@ -284,6 +284,16 @@ def create_app(
             ) from None
         try:
             await active_store.append(session_id, "user", prompt)
+        except asyncio.CancelledError:
+            await security.release(leases)
+            audit_outcome(
+                http_request.state.request_id,
+                "cancelled",
+                security.policy.ref(
+                    "principal:" + http_request.state.principal.name
+                ),
+            )
+            raise
         except Exception:
             await security.release(leases)
             raise HTTPException(

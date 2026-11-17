@@ -506,3 +506,80 @@ def test_stream_failures_release_admission_leases():
         assert '"error"' in response.text
         assert app.state.security.store.leases == {}
         assert not any(row["role"] == "assistant" for row in store.rows)
+
+
+def test_cancellation_during_reservation_releases_acquired_slots():
+    from backend.security import Security
+
+    class CancelStore(MemorySecurityStore):
+        async def acquire(self, key, limit, seconds):
+            if self.leases:
+                raise asyncio.CancelledError
+            return await super().acquire(key, limit, seconds)
+
+    async def run():
+        policy = unit_policy()
+        storage = CancelStore()
+        security = Security(policy, storage)
+        with pytest.raises(asyncio.CancelledError):
+            await security.reserve(policy.principals[0])
+        assert storage.leases == {}
+
+    asyncio.run(run())
+
+
+def test_host_with_empty_userinfo_is_not_an_allowed_authority():
+    _, store, context = client_for()
+    with context as client:
+        for host in ("@testserver", ":@testserver"):
+            response = client.post(
+                "/api/ai/audit",
+                json=payload(),
+                headers=dict(headers(), Host=host),
+            )
+            assert response.status_code == 400
+        assert store.rows == []
+
+
+def test_cancelled_initial_write_releases_stream_slots():
+    from types import SimpleNamespace
+    from backend.server import AIAnalyzeRequest
+
+    app, store, context = client_for()
+    with context:
+
+        async def cancel(*args):
+            raise asyncio.CancelledError
+
+        store.append = cancel
+        endpoint = next(
+            r.endpoint for r in app.routes if r.path == "/api/ai/audit"
+        )
+        principal = app.state.security.policy.principals[0]
+        request = SimpleNamespace(
+            state=SimpleNamespace(
+                principal=principal,
+                request_id="a" * 32,
+            )
+        )
+
+        async def run():
+            with pytest.raises(asyncio.CancelledError):
+                await endpoint(AIAnalyzeRequest(**payload()), request)
+            assert app.state.security.store.leases == {}
+
+        asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "https://@synthetic.invalid",
+        "https://:@synthetic.invalid",
+    ],
+)
+def test_empty_userinfo_is_not_a_valid_origin_configuration(origin):
+    doc = policy_document()
+    doc["allowed_origins"] = [origin]
+    with pytest.raises(ValueError):
+        Policy.parse(doc)
