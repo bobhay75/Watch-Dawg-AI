@@ -110,6 +110,9 @@ def post_ai_audit(
     return requests.post(
         f"{api_base_url}/api/ai/audit",
         json=payload,
+        headers={
+            "Authorization": "Bearer " + os.environ["WATCHDAWG_TEST_TOKEN"]
+        },
         stream=True,
         timeout=120,
     )
@@ -156,7 +159,13 @@ def docs_with_role(
 
 
 def test_health_ok(api_base_url: str) -> None:
-    response = requests.get(f"{api_base_url}/api/health", timeout=15)
+    response = requests.get(
+        f"{api_base_url}/api/health",
+        timeout=15,
+        headers={
+            "Authorization": "Bearer " + os.environ["WATCHDAWG_TEST_TOKEN"]
+        },
+    )
 
     assert response.status_code == 200
     data = response.json()

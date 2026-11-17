@@ -4,3 +4,4 @@ backend/**
 !backend/server.py
 !backend/providers.py
 !backend/requirements.txt
+!backend/security.py

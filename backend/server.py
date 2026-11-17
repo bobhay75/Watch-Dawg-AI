@@ -11,19 +11,37 @@ from datetime import datetime, timezone
 from typing import Any, Final
 from urllib.parse import parse_qsl, urlsplit
 
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from pymongo import AsyncMongoClient
 
 if __package__:
+    from .security import (
+        Policy,
+        Security,
+        MongoSecurityStore,
+        SecurityMiddleware,
+        Limited,
+        secret_value,
+        audit_outcome,
+    )
     from .providers import (
         CompatibleProvider,
         DisabledProvider,
         SyntheticProvider,
     )
 else:
+    from security import (
+        Policy,
+        Security,
+        MongoSecurityStore,
+        SecurityMiddleware,
+        Limited,
+        secret_value,
+        audit_outcome,
+    )
     from providers import (
         CompatibleProvider,
         DisabledProvider,
@@ -53,8 +71,19 @@ class LimitRequestBody:
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         body = bytearray()
+        deadline = asyncio.get_running_loop().time() + 10
         while True:
-            message = await receive()
+            try:
+                remaining = max(
+                    0, deadline - asyncio.get_running_loop().time()
+                )
+                async with asyncio.timeout(remaining):
+                    message = await receive()
+            except TimeoutError:
+                return await JSONResponse(
+                    {"detail": "Request body timeout"},
+                    status_code=408,
+                )(scope, receive, send)
             if message["type"] == "http.disconnect":
                 return
             chunk = message.get("body", b"")
@@ -91,6 +120,7 @@ class Settings:
     base_url: str = ""
     api_key: str = field(default="", repr=False)
     model: str = ""
+    security_file: str = field(default="", repr=False)
 
     def __post_init__(self):
         options = dict(parse_qsl(urlsplit(self.mongo_url).query))
@@ -114,13 +144,14 @@ class Settings:
     @classmethod
     def from_env(cls):
         return cls(
-            os.getenv("MONGO_URL", ""),
+            secret_value("MONGO_URL"),
             os.getenv("DB_NAME", ""),
             os.getenv("LLM_PROVIDER", "disabled"),
             os.getenv("WATCHDAWG_TEST_MODE") == "true",
             os.getenv("LLM_BASE_URL", ""),
-            os.getenv("LLM_API_KEY", ""),
+            secret_value("LLM_API_KEY"),
             os.getenv("LLM_MODEL", ""),
+            os.getenv("BACKEND_SECURITY_FILE", ""),
         )
 
 
@@ -151,15 +182,35 @@ def select_provider(settings):
     raise ValueError("Unsupported or unsafe provider configuration")
 
 
-def create_app(settings=None, store=None, provider=None):
+def create_app(
+    settings=None, store=None, provider=None, policy=None, security_store=None
+):
     @asynccontextmanager
     async def lifespan(application):
         config = settings or Settings.from_env()
-        application.state.provider = (
+        active_policy = policy or Policy.load(config.security_file)
+        active_provider = (
             provider if provider is not None else select_provider(config)
         )
+        if active_policy.transport == "test" and (
+            not config.test_mode
+            or not isinstance(active_provider, SyntheticProvider)
+        ):
+            raise ValueError("Test transport requires explicit synthetic mode")
+        if (
+            active_policy.transport == "test"
+            and store is None
+            and not config.db_name.startswith("watchdawg_test_")
+        ):
+            raise ValueError("Test transport requires a disposable database")
+        application.state.provider = active_provider
         if store is not None:
+            if security_store is None:
+                raise ValueError("Injected storage requires a security store")
             application.state.store = store
+            application.state.security = Security(
+                active_policy, security_store
+            )
             yield
             return
         if not config.mongo_url or not config.db_name:
@@ -171,31 +222,45 @@ def create_app(settings=None, store=None, provider=None):
             timeoutMS=5000,
         )
         try:
-            await client.admin.command("ping")
-            application.state.store = MongoStore(
-                client[config.db_name].ai_audit_messages
-            )
+            try:
+                await client.admin.command("ping")
+                database = client[config.db_name]
+                shared_security = MongoSecurityStore(database)
+                await shared_security.initialize()
+                application.state.store = MongoStore(
+                    database.ai_audit_messages
+                )
+                application.state.security = Security(
+                    active_policy, shared_security
+                )
+            except Exception:
+                raise RuntimeError(
+                    "Backend database initialization failed"
+                ) from None
             yield
         finally:
             await client.close()
 
-    application = FastAPI(title="Watch-Dawg AI API", lifespan=lifespan)
-    application.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
+    application = FastAPI(
+        title="Watch-Dawg AI API",
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
     )
-
     application.add_middleware(LimitRequestBody)
+    application.add_middleware(SecurityMiddleware)
+
+    @application.exception_handler(RequestValidationError)
+    async def validation_error(request, exc):
+        return JSONResponse({"detail": "Invalid request"}, status_code=422)
 
     @application.get("/api/health")
     async def health():
         return {"status": "ok", "service": "watch-dawg-ai"}
 
     @application.post("/api/ai/audit")
-    async def ai_audit(request: AIAnalyzeRequest):
+    async def ai_audit(request: AIAnalyzeRequest, http_request: Request):
         active_provider = application.state.provider
         if not active_provider.ready:
             raise HTTPException(
@@ -204,20 +269,59 @@ def create_app(settings=None, store=None, provider=None):
         session_id = build_session_id()
         prompt = build_audit_prompt(request)
         active_store = application.state.store
+        security = application.state.security
+        try:
+            leases = await security.reserve(http_request.state.principal)
+        except Limited:
+            raise HTTPException(
+                status_code=429,
+                detail="Stream budget exceeded",
+                headers={"Retry-After": "120"},
+            ) from None
+        except Exception:
+            raise HTTPException(
+                status_code=503, detail="Security service unavailable"
+            ) from None
         try:
             await active_store.append(session_id, "user", prompt)
         except Exception:
+            await security.release(leases)
             raise HTTPException(
                 status_code=500, detail="Audit storage is unavailable"
             ) from None
-        return format_sse_response(
-            stream_ai_audit_events(
-                active_provider,
-                active_store,
-                session_id,
-                prompt,
+
+        recorded = False
+
+        def record_result(outcome):
+            nonlocal recorded
+            recorded = True
+            audit_outcome(
+                http_request.state.request_id,
+                outcome,
+                security.policy.ref(
+                    "principal:" + http_request.state.principal.name
+                ),
             )
-        )
+
+        async def guarded_stream():
+            try:
+                async with aclosing(
+                    stream_ai_audit_events(
+                        active_provider,
+                        active_store,
+                        session_id,
+                        prompt,
+                        outcome=record_result,
+                    )
+                ) as stream:
+                    async for event in stream:
+                        yield event
+            finally:
+                if not recorded:
+                    record_result("cancelled")
+                await security.release(leases)
+
+        return format_sse_response(guarded_stream())
 
     return application
 
@@ -268,7 +372,7 @@ def build_audit_message(
 
 
 async def stream_ai_audit_events(
-    provider, store, session_id, prompt
+    provider, store, session_id, prompt, outcome=None
 ) -> AsyncIterator[str]:
     collected = []
     length = 0
@@ -285,8 +389,12 @@ async def stream_ai_audit_events(
                 collected.append(delta)
                 yield format_sse_event({"delta": delta})
         await store.append(session_id, "assistant", "".join(collected))
+        if outcome:
+            outcome("completed")
         yield format_sse_event({"done": True, "session_id": session_id})
     except Exception:
+        if outcome:
+            outcome("failed")
         # Never retain exception text/types: providers may embed
         # keys, URLs or prompts.
         yield format_sse_event(
