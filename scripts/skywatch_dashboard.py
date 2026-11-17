@@ -16,6 +16,15 @@ def read_snapshots(folder):
             raise ValueError("Malformed observations snapshot")
     return snapshots
 
+def select_baseline(snapshots):
+    """Use last nonempty prior snapshot; do not mistake empty legacy runs for zero alerts."""
+    if len(snapshots) < 2:
+        return None
+    for _, doc in reversed(snapshots[:-1]):
+        if doc["observations"]:
+            return doc
+    return None
+
 def changes(previous, current):
     old = {x["id"]: x for x in previous if isinstance(x, dict) and x.get("id")}
     new = {x["id"]: x for x in current if isinstance(x, dict) and x.get("id")}
@@ -52,11 +61,18 @@ def main():
     snapshots=read_snapshots(args.input_dir)
     latest=snapshots[-1][1]
     current=latest["observations"]
-    previous=snapshots[-2][1]["observations"] if len(snapshots)>1 else []
+    baseline=select_baseline(snapshots)
+    previous=baseline["observations"] if baseline else []
     delta=changes(previous,current)
+    if baseline is None:
+        delta={"new":[],"continuing":[],"no_longer_active":[]}
+    print("Comparison baseline:",baseline.get("retrieved_at","unknown") if baseline else "unavailable; counts suppressed")
     output=Path(args.output)
     output.parent.mkdir(parents=True,exist_ok=True)
-    output.write_text(render(current,delta,latest.get("retrieved_at","unknown")),encoding="utf-8")
+    page=render(current,delta,latest.get("retrieved_at","unknown"))
+    if baseline is None:
+        page=page.replace("<section class=\"stats\">", "<section><strong>Baseline unavailable:</strong> change counts are not meaningful until two nonempty snapshots exist.</section><section class=\"stats\">", 1)
+    output.write_text(page,encoding="utf-8")
     print("Dashboard saved:",output)
     print("Snapshots compared:",len(snapshots))
     print("Current:",len(current),"New:",len(delta["new"]),"Continuing:",len(delta["continuing"]),"No longer active:",len(delta["no_longer_active"]))
