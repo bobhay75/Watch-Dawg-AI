@@ -60,6 +60,7 @@ def normalize(doc,retrieved):
         out.append({"id":hashlib.sha256(("NASA-EONET:"+e["id"]).encode()).hexdigest(),
             "external_id":e["id"],"title":str(e.get("title") or "Untitled")[:300],
             "categories":cats,"source":{"name":"NASA EONET","url":link},
+            "event_dates":[str(g.get("date")) for g in geom if isinstance(g,dict) and isinstance(g.get("date"),str)][:30],
             "retrieved_at":retrieved,"geometry_type":"Point" if points else "unsupported_or_missing",
             "missouri_point_match":any(in_bounds(p,MISSOURI) for p in points),
             "ozarks_point_match":any(in_bounds(p,OZARKS) for p in points),
