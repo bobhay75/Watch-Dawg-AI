@@ -373,6 +373,34 @@ def test_audit_partial_tail_fails_closed(tmp_path):
         journal.close()
 
 
+@pytest.mark.parametrize("rotation", ["size", "day", "expired"])
+def test_audit_partial_tail_cannot_escape_through_rotation(tmp_path, rotation):
+    journal = AuditJournal(tmp_path, segment_bytes=1024, min_free_bytes=0)
+    journal.write(event())
+    path = next(tmp_path.glob("audit-*.jsonl"))
+    if rotation == "size":
+        path.write_bytes(b"x" * 1023)
+    else:
+        path.write_bytes(path.read_bytes()[:-1])
+        if rotation == "day":
+            path = path.rename(
+                tmp_path
+                / ("audit-20000101000000000000-" + "a" * 32 + ".jsonl")
+            )
+        else:
+            os.utime(path, (1, 1))
+    before = path.read_bytes()
+    try:
+        with pytest.raises(AuditUnavailable):
+            journal.write(event())
+        assert path.read_bytes() == before
+        assert len(list(tmp_path.glob("audit-*.jsonl"))) == 1
+    finally:
+        journal.close()
+    with pytest.raises(AuditUnavailable):
+        AuditJournal(tmp_path, segment_bytes=1024, min_free_bytes=0)
+
+
 def test_compose_isolation_contract():
     import shutil
     import subprocess

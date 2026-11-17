@@ -158,6 +158,19 @@ class AuditJournal:
                 raise AuditUnavailable("Foreign file in audit directory")
             if info.st_size > self.segment_bytes:
                 raise AuditUnavailable("Audit segment exceeds policy")
+            # Check every segment before rotation or retention can bypass a
+            # partial write. Preserve damaged records for operator recovery.
+            check = os.open(
+                name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=self.fd
+            )
+            with os.fdopen(check, "rb") as stream:
+                self._owned(os.fstat(stream.fileno()))
+                if info.st_size:
+                    stream.seek(-1, os.SEEK_END)
+                    if stream.read(1) != b"\n":
+                        raise AuditUnavailable(
+                            "Incomplete audit tail requires review"
+                        )
             segments.append((name, info))
         return sorted(segments)
 
@@ -192,16 +205,6 @@ class AuditJournal:
                     and kept[-1][1].st_size + len(line) <= self.segment_bytes
                 ):
                     name = kept[-1][0]
-                    check = os.open(
-                        name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=self.fd
-                    )
-                    with os.fdopen(check, "rb") as stream:
-                        if kept[-1][1].st_size:
-                            stream.seek(-1, os.SEEK_END)
-                            if stream.read(1) != b"\n":
-                                raise AuditUnavailable(
-                                    "Incomplete audit tail requires review"
-                                )
                     flags = os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW
                 else:
                     if len(kept) >= self.max_segments:
