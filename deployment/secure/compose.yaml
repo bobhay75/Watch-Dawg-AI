@@ -1,0 +1,91 @@
+# REVIEW TEMPLATE ONLY. Never run against production without owner approval.
+# Pre-provision owned secret files, audit directory and certificates first.
+services:
+  proxy:
+    build:
+      context: ../..
+      dockerfile: deployment/secure/Proxy.Dockerfile
+    user: '101:101'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ports: ['127.0.0.1:8443:8443']
+    networks:
+      ingress: {}
+      api:
+        ipv4_address: 172.30.10.2
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=32m']
+    volumes:
+      - '${WATCHDAWG_SECRETS:?Set a private absolute secrets directory}/proxy:/run/secrets:ro'
+    logging:
+      driver: json-file
+      options: {max-size: '10m', max-file: '3'}
+    depends_on: [backend]
+  backend:
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+    user: '10001:10001'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      BACKEND_SECURITY_FILE: /run/secrets/security.json
+      BACKEND_AUDIT_DIR: /var/lib/watchdawg/audit
+      BACKEND_AUDIT_SEGMENT_BYTES: '67108864'
+      BACKEND_AUDIT_MAX_SEGMENTS: '128'
+      BACKEND_AUDIT_RETENTION_DAYS: '7'
+      MONGO_URL_FILE: /run/secrets/mongo-uri
+      DB_NAME: watchdawg
+      LLM_PROVIDER: disabled
+    command: [python, -m, uvicorn, 'backend.server:app', --host, 0.0.0.0, --port, '8001', --no-proxy-headers, --no-access-log, --no-server-header, --limit-concurrency, '64', --ssl-certfile, /run/secrets/backend.crt, --ssl-keyfile, /run/secrets/backend.pem, --ssl-ca-certs, /run/secrets/backend-ca.crt, --ssl-cert-reqs, '2']
+    networks:
+      api:
+        ipv4_address: 172.30.10.3
+        aliases: [watchdawg_backend]
+      data: {}
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=16m']
+    volumes:
+      - '${WATCHDAWG_SECRETS:?Set a private absolute secrets directory}/backend:/run/secrets:ro'
+      - '${WATCHDAWG_AUDIT:?Set an owned private audit directory}:/var/lib/watchdawg/audit:rw'
+    logging:
+      driver: json-file
+      options: {max-size: '10m', max-file: '3'}
+  mongo1: &mongo
+    image: mongo:8.0@sha256:bdc216e9d5a6ec2cfdac789b5832fdab64cd32055f59885cae918a92de63c361
+    profiles: [local-replica]
+    user: '999:999'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    command: [mongod, --replSet, watchdawg, --auth, --keyFile, /run/secrets/repl.key, --bind_ip_all, --tlsMode, requireTLS, --tlsCertificateKeyFile, /run/secrets/node.pem, --tlsCAFile, /run/secrets/ca.crt]
+    networks: [data]
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=16m', '/data/configdb:rw,noexec,nosuid,size=16m']
+    volumes:
+      - mongo1:/data/db
+      - '${WATCHDAWG_SECRETS:?}/mongo1:/run/secrets:ro'
+    logging:
+      driver: json-file
+      options: {max-size: '10m', max-file: '3'}
+  mongo2:
+    <<: *mongo
+    volumes:
+      - mongo2:/data/db
+      - '${WATCHDAWG_SECRETS:?}/mongo2:/run/secrets:ro'
+  mongo3:
+    <<: *mongo
+    volumes:
+      - mongo3:/data/db
+      - '${WATCHDAWG_SECRETS:?}/mongo3:/run/secrets:ro'
+networks:
+  ingress: {}
+  api:
+    internal: true
+    ipam:
+      config: [{subnet: 172.30.10.0/29}]
+  data:
+    internal: true
+volumes:
+  mongo1: {}
+  mongo2: {}
+  mongo3: {}

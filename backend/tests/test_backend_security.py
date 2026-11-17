@@ -559,6 +559,7 @@ def test_cancelled_initial_write_releases_stream_slots():
         request = SimpleNamespace(
             state=SimpleNamespace(
                 principal=principal,
+                security=app.state.security,
                 request_id="a" * 32,
             )
         )

@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from pymongo import AsyncMongoClient
 
 if __package__:
+    from .audit import AuditJournal
     from .security import (
         Policy,
         Security,
@@ -33,6 +34,7 @@ if __package__:
         SyntheticProvider,
     )
 else:
+    from audit import AuditJournal
     from security import (
         Policy,
         Security,
@@ -121,6 +123,10 @@ class Settings:
     api_key: str = field(default="", repr=False)
     model: str = ""
     security_file: str = field(default="", repr=False)
+    audit_dir: str = field(default="", repr=False)
+    audit_segment_bytes: int = 1024 * 1024
+    audit_max_segments: int = 8
+    audit_retention_days: int = 7
 
     def __post_init__(self):
         options = dict(parse_qsl(urlsplit(self.mongo_url).query))
@@ -152,6 +158,10 @@ class Settings:
             secret_value("LLM_API_KEY"),
             os.getenv("LLM_MODEL", ""),
             os.getenv("BACKEND_SECURITY_FILE", ""),
+            os.getenv("BACKEND_AUDIT_DIR", ""),
+            int(os.getenv("BACKEND_AUDIT_SEGMENT_BYTES", str(1024 * 1024))),
+            int(os.getenv("BACKEND_AUDIT_MAX_SEGMENTS", "8")),
+            int(os.getenv("BACKEND_AUDIT_RETENTION_DAYS", "7")),
         )
 
 
@@ -186,7 +196,7 @@ def create_app(
     settings=None, store=None, provider=None, policy=None, security_store=None
 ):
     @asynccontextmanager
-    async def lifespan(application):
+    async def runtime(application):
         config = settings or Settings.from_env()
         active_policy = policy or Policy.load(config.security_file)
         active_provider = (
@@ -203,13 +213,17 @@ def create_app(
             and not config.db_name.startswith("watchdawg_test_")
         ):
             raise ValueError("Test transport requires a disposable database")
+        if not config.test_mode and application.state.audit_sink is None:
+            raise RuntimeError("BACKEND_AUDIT_DIR is required outside tests")
         application.state.provider = active_provider
         if store is not None:
             if security_store is None:
                 raise ValueError("Injected storage requires a security store")
             application.state.store = store
             application.state.security = Security(
-                active_policy, security_store
+                active_policy,
+                security_store,
+                config.security_file if policy is None else None,
             )
             yield
             return
@@ -231,7 +245,9 @@ def create_app(
                     database.ai_audit_messages
                 )
                 application.state.security = Security(
-                    active_policy, shared_security
+                    active_policy,
+                    shared_security,
+                    config.security_file if policy is None else None,
                 )
             except Exception:
                 raise RuntimeError(
@@ -240,6 +256,30 @@ def create_app(
             yield
         finally:
             await client.close()
+
+    @asynccontextmanager
+    async def lifespan(application):
+        config = settings or Settings.from_env()
+        sink = None
+        if config.audit_dir:
+            try:
+                sink = AuditJournal(
+                    config.audit_dir,
+                    config.audit_segment_bytes,
+                    config.audit_max_segments,
+                    config.audit_retention_days,
+                )
+            except Exception:
+                raise RuntimeError(
+                    "Durable audit initialization failed"
+                ) from None
+        application.state.audit_sink = sink
+        try:
+            async with runtime(application):
+                yield
+        finally:
+            if sink:
+                sink.close()
 
     application = FastAPI(
         title="Watch-Dawg AI API",
@@ -269,7 +309,7 @@ def create_app(
         session_id = build_session_id()
         prompt = build_audit_prompt(request)
         active_store = application.state.store
-        security = application.state.security
+        security = http_request.state.security
         try:
             leases = await security.reserve(http_request.state.principal)
         except Limited:
@@ -282,6 +322,7 @@ def create_app(
             raise HTTPException(
                 status_code=503, detail="Security service unavailable"
             ) from None
+        http_request.state.active_security_leases = leases
         try:
             await active_store.append(session_id, "user", prompt)
         except asyncio.CancelledError:
@@ -292,6 +333,7 @@ def create_app(
                 security.policy.ref(
                     "principal:" + http_request.state.principal.name
                 ),
+                application.state.audit_sink,
             )
             raise
         except Exception:
@@ -311,6 +353,7 @@ def create_app(
                 security.policy.ref(
                     "principal:" + http_request.state.principal.name
                 ),
+                application.state.audit_sink,
             )
 
         async def guarded_stream():
@@ -327,9 +370,12 @@ def create_app(
                     async for event in stream:
                         yield event
             finally:
-                if not recorded:
-                    record_result("cancelled")
-                await security.release(leases)
+                try:
+                    if not recorded:
+                        record_result("cancelled")
+                finally:
+                    await security.release(leases)
+                    http_request.state.active_security_leases = []
 
         return format_sse_response(guarded_stream())
 

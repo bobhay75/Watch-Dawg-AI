@@ -1,0 +1,6 @@
+**
+!deployment/
+deployment/**
+!deployment/secure/
+deployment/secure/**
+!deployment/secure/nginx.conf

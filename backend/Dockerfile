@@ -10,7 +10,8 @@ RUN --mount=type=secret,id=package_ca \
     else \
       python -m pip install --no-cache-dir --require-hashes -r requirements.txt; \
     fi
-COPY --chown=10001:10001 backend/server.py backend/providers.py backend/security.py /app/backend/
+COPY --chown=10001:10001 backend/server.py backend/providers.py backend/security.py backend/audit.py /app/backend/
+RUN mkdir -p /var/lib/watchdawg/audit && chown 10001:10001 /var/lib/watchdawg/audit && chmod 0700 /var/lib/watchdawg/audit
 USER 10001:10001
 EXPOSE 8001
 CMD ["python", "-m", "uvicorn", "backend.server:app", "--host", "0.0.0.0", "--port", "8001", "--no-server-header", "--no-proxy-headers", "--no-access-log", "--limit-concurrency", "64", "--timeout-keep-alive", "5"]
