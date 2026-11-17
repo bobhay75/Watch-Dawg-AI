@@ -94,36 +94,50 @@ class CompatibleProvider:
                 buffer = b""
                 total = 0
                 data = []
-                async for chunk in response.aiter_bytes(chunk_size=8192):
+                # Do not ask HTTPX to accumulate 8 KiB before yielding.
+                # Parse small deltas immediately, but bound parser slices.
+                async for chunk in response.aiter_bytes():
                     total += len(chunk)
                     if total > 2 * 1024 * 1024:
                         raise ValueError("Provider response exceeds limit")
-                    buffer += chunk
-                    if len(buffer) > 65536:
-                        raise ValueError("Provider frame exceeds limit")
-                    while b"\n" in buffer:
-                        line, buffer = buffer.split(b"\n", 1)
-                        line = line.rstrip(b"\r")
-                        if line.startswith(b"data:"):
-                            data.append(line[5:].lstrip(b" "))
-                        elif not line and data:
-                            payload = b"\n".join(data).decode("utf-8")
-                            data = []
-                            if payload == "[DONE]":
-                                return
-                            event = json.loads(payload)
-                            choices = event.get("choices")
-                            if not isinstance(choices, list):
-                                raise ValueError("Malformed provider event")
-                            if not choices:
-                                continue  # usage-only event
-                            delta = choices[0].get("delta", {}).get("content")
-                            if delta is not None:
-                                if not isinstance(delta, str):
+                    for offset in range(0, len(chunk), 8192):
+                        end = offset + 8192
+                        buffer += chunk[offset:end]
+                        while b"\n" in buffer:
+                            line, buffer = buffer.split(b"\n", 1)
+                            if len(line) > 65536:
+                                raise ValueError(
+                                    "Provider frame exceeds limit"
+                                )
+                            line = line.rstrip(b"\r")
+                            if line.startswith(b"data:"):
+                                data.append(line[5:].lstrip(b" "))
+                            elif not line and data:
+                                payload = b"\n".join(data).decode("utf-8")
+                                data = []
+                                if payload == "[DONE]":
+                                    return
+                                event = json.loads(payload)
+                                choices = event.get("choices")
+                                if not isinstance(choices, list):
                                     raise ValueError(
-                                        "Malformed provider content"
+                                        "Malformed provider event"
                                     )
-                                yield delta
-                        if sum(map(len, data)) > 65536:
-                            raise ValueError("Provider event exceeds limit")
+                                if not choices:
+                                    continue  # usage-only event
+                                delta = (
+                                    choices[0].get("delta", {}).get("content")
+                                )
+                                if delta is not None:
+                                    if not isinstance(delta, str):
+                                        raise ValueError(
+                                            "Malformed provider content"
+                                        )
+                                    yield delta
+                            if sum(map(len, data)) > 65536:
+                                raise ValueError(
+                                    "Provider event exceeds limit"
+                                )
+                        if len(buffer) > 65536:
+                            raise ValueError("Provider frame exceeds limit")
                 raise ValueError("Provider stream ended without completion")

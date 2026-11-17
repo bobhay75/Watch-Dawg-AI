@@ -132,3 +132,34 @@ def test_mongo_tls_bypass_options_are_rejected(option):
         Settings(
             "mongodb://127.0.0.1/test?" + option, "watchdawg_test_synthetic"
         )
+
+
+def test_small_delta_is_delivered_before_more_network_bytes_arrive():
+    class PausedStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b'data: {"choices":[{"delta":{"content":"first"}}]}\n\n'
+            await asyncio.Event().wait()
+
+    async def run():
+        transport = httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=PausedStream(),
+            )
+        )
+        provider = CompatibleProvider(
+            "https://synthetic.invalid/v1",
+            "test",
+            "test",
+            transport,
+        )
+        stream = provider.stream("test", "test", "test")
+        try:
+            assert (
+                await asyncio.wait_for(anext(stream), timeout=0.5) == "first"
+            )
+        finally:
+            await stream.aclose()
+
+    asyncio.run(run())
