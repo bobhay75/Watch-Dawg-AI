@@ -1,5 +1,6 @@
 **
-!backend
+!backend/
+backend/**
 !backend/server.py
 !backend/providers.py
 !backend/requirements.txt

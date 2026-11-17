@@ -53,5 +53,9 @@ jobs:
           python -m pip_audit -r backend/requirements-dev.txt
       - name: Build private backend container locally
         run: docker build -f backend/Dockerfile -t watchdawg-backend:test .
+      - name: Verify image contains only runtime Python files
+        run: >-
+          docker run --rm --entrypoint python watchdawg-backend:test
+          -c "from pathlib import Path; assert {p.name for p in Path('/app/backend').iterdir()} == {'server.py', 'providers.py'}"
       - name: Exercise packaged API with synthetic provider and disposable database
         run: python scripts/test_backend_disposable.py --backend-image watchdawg-backend:test
