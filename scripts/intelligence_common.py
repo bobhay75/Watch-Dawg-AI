@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import urllib.request
 from urllib.parse import urlsplit
 import uuid
@@ -89,6 +90,7 @@ def save_snapshot(folder, data, report, raw=None):
 def snapshot_identity(doc):
     return {'retrieved_at': doc.get('retrieved_at'), 'source': doc.get('source'),
             'raw_sha256': doc.get('raw_sha256'), 'raw_file': doc.get('raw_file'),
+            'provenance_status': 'digest_present_not_publisher_authenticated' if doc.get('raw_sha256') else 'legacy_unverified',
             'snapshot_sha256': hashlib.sha256(json.dumps(doc, sort_keys=True).encode()).hexdigest()}
 
 
@@ -102,6 +104,18 @@ def read_feed(fixture, url, user_agent):
     return json.loads(raw), raw
 
 
+def read_local_bytes(path):
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+    fd = os.open(path, flags)
+    with os.fdopen(fd, 'rb') as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            raise ValueError('Evidence must be a regular file')
+        raw = stream.read(MAX_BYTES + 1)
+    if len(raw) > MAX_BYTES:
+        raise ValueError('Evidence exceeds size limit')
+    return raw
+
+
 def load_snapshot(path):
     """Validate retained-byte integrity when a snapshot carries a raw digest.
 
@@ -109,17 +123,21 @@ def load_snapshot(path):
     Digests detect corruption; they are not publisher signatures.
     """
     path = Path(path)
-    doc = json.loads(path.read_text(encoding='utf-8'))
+    doc = json.loads(read_local_bytes(path))
     if not isinstance(doc, dict):
         raise ValueError('Malformed snapshot document')
     digest = doc.get('raw_sha256')
+    if 'raw_file' in doc and digest is None:
+        raise ValueError('Raw evidence reference requires a digest')
     if digest is not None:
+        if not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest):
+            raise ValueError('Malformed evidence digest')
         name = doc.get('raw_file', path.name.replace('-observations.json', '-raw.json'))
         if not isinstance(name, str) or Path(name).name != name or not name.endswith('-raw.json'):
             raise ValueError('Invalid raw snapshot reference')
         raw_path = path.parent / name
         if raw_path.is_symlink() or not raw_path.is_file():
             raise ValueError('Raw evidence missing or linked')
-        if hashlib.sha256(raw_path.read_bytes()).hexdigest() != digest:
+        if hashlib.sha256(read_local_bytes(raw_path)).hexdigest() != digest:
             raise ValueError('Raw evidence digest mismatch')
     return doc

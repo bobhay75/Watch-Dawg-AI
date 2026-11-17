@@ -20,6 +20,8 @@ def candidate(noaa,nasa):
     This is NOT event identity or independent corroboration."""
     if not isinstance(noaa,dict) or not isinstance(nasa,dict):
         return None
+    if any(not isinstance(row.get("id"), str) or not row["id"].strip() for row in (noaa, nasa)):
+        return None
     if nasa.get("missouri_point_match") is not True:
         return None
     zones=noaa.get("zones") or []
@@ -50,6 +52,7 @@ def candidate(noaa,nasa):
             "noaa_source":(noaa.get("source") or {}).get("url"),
             "nasa_source":(nasa.get("source") or {}).get("url"),
             "judgment":"candidate_only_not_corroborated",
+            "publication_approved":False,
             "limitations":"Missouri statewide coarse overlap; event identities and spatial footprints unverified"}
 
 def correlate(noaa,events):
