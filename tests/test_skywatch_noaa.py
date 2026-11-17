@@ -20,6 +20,13 @@ class NOAAIngestTests(unittest.TestCase):
         self.assertFalse(records[0]["publication_approved"])
         self.assertEqual(records[0]["evidence"][0]["url"], identifier)
 
+    def test_real_noaa_at_id_field(self):
+        identifier = "https://api.weather.gov/alerts/urn:oid:2.49.0.1.example"
+        data = {"features": [{"properties": {"@id": identifier, "sent": "2026-11-17T08:28:00Z", "event": "Wind Advisory"}}]}
+        records = mod.normalize(data, "2026-11-17T09:00:00Z")
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["source"]["url"], identifier)
+
     def test_rejects_invalid_source(self):
         data = {"features": [{"properties": {"id": "https://example.org/fake",
                     "sent": "2026-11-16T00:00:00Z"}}]}
