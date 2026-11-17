@@ -72,3 +72,52 @@ class MigrationTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 migrate(self.root, True)
         self.assertFalse(migrate(self.root)['applied'])
+
+    def test_partial_application_is_recoverable_without_content_changes(self):
+        actual = os.fchmod
+        calls = 0
+        before = self.file.read_bytes()
+
+        def interrupt(fd, mode):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError('simulated interruption')
+            actual(fd, mode)
+
+        with patch('migrate_evidence_permissions.os.fchmod', side_effect=interrupt):
+            with self.assertRaises(OSError):
+                migrate(self.root, True)
+        self.assertEqual(self.root.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(self.file.stat().st_mode & 0o777, 0o644)
+        self.assertEqual(self.file.read_bytes(), before)
+        self.assertTrue(migrate(self.root, True)['applied'])
+        self.assertEqual(self.file.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.file.read_bytes(), before)
+
+    def test_symlink_swap_between_stat_and_open_is_refused(self):
+        actual = os.open
+        outside = Path(self.temp.name) / 'outside'
+        outside.write_text('untouched')
+        outside.chmod(0o644)
+
+        def substitute(path, flags, **kwargs):
+            if path == 'raw.json':
+                self.file.rename(self.root / 'retained.json')
+                self.file.symlink_to(outside)
+            return actual(path, flags, **kwargs)
+
+        with patch('migrate_evidence_permissions.os.open', side_effect=substitute):
+            with self.assertRaises(OSError):
+                migrate(self.root, True)
+        self.assertEqual(outside.stat().st_mode & 0o777, 0o644)
+        self.assertEqual(self.root.stat().st_mode & 0o777, 0o755)
+        self.assertEqual((self.root / 'retained.json').read_bytes(), b'private evidence\x00\n')
+
+    def test_parent_traversal_and_invalid_limits_refused(self):
+        with self.assertRaises(ValueError):
+            migrate(str(self.root / '..' / 'evidence'), True)
+        for limit in (0, -1, True, '512'):
+            with self.assertRaises(ValueError):
+                migrate(self.root, True, max_entries=limit)
+        self.assertEqual(self.root.stat().st_mode & 0o777, 0o755)

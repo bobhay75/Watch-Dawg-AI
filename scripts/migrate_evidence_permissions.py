@@ -14,6 +14,10 @@ import stat
 def migrate(root, apply=False, max_entries=512):
     if os.name != 'posix' or not hasattr(os, 'O_NOFOLLOW'):
         raise ValueError('Migration requires POSIX no-follow descriptor support')
+    if '..' in Path(root).parts:
+        raise ValueError('Parent traversal is not allowed in the evidence root')
+    if isinstance(max_entries, bool) or not isinstance(max_entries, int) or max_entries < 1:
+        raise ValueError('Entry limit must be a positive integer')
     parts = Path(os.path.abspath(root)).parts
     if len(parts) <= 2:
         raise ValueError('Select a dedicated evidence subtree')
@@ -57,16 +61,20 @@ def migrate(root, apply=False, max_entries=512):
                 inspect(fd, before)
                 if is_dir:
                     queue.append(fd)
-        # Recheck all opened objects before making any permission changes.
-        for fd, _, before in entries:
+        def assert_stable(fd, before):
             after = os.fstat(fd)
-            if (after.st_uid, after.st_nlink, after.st_mode, after.st_mtime_ns) != (
-                    before.st_uid, before.st_nlink, before.st_mode, before.st_mtime_ns):
+            if (after.st_uid, after.st_nlink, after.st_mode, after.st_mtime_ns, after.st_ctime_ns) != (
+                    before.st_uid, before.st_nlink, before.st_mode, before.st_mtime_ns, before.st_ctime_ns):
                 raise ValueError('Tree changed; stop writers before migration')
+
+        # Recheck the full preflight, then recheck each object immediately before chmod.
+        for fd, _, before in entries:
+            assert_stable(fd, before)
         changes = sum(stat.S_IMODE(info.st_mode) != mode for _, mode, info in entries)
         if apply:
             # Close directory access first; descriptors keep descendants accessible.
-            for fd, mode, _ in entries:
+            for fd, mode, before in entries:
+                assert_stable(fd, before)
                 os.fchmod(fd, mode)
         return {'entries': len(entries), 'permission_changes': changes, 'applied': apply}
     finally:

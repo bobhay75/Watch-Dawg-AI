@@ -14,7 +14,7 @@ python scripts/migrate_evidence_permissions.py --root local-data
 python scripts/migrate_evidence_permissions.py --root local-data --apply
 ```
 
-The utility opens the root and every ancestor without following symlinks, then preflights the complete subtree through retained directory-relative descriptors. It refuses foreign ownership, cross-device entries, symbolic/hard links, FIFOs and other special files; it checks for detectable concurrent changes. It sets directories to 0700 and regular files to 0600, including historical dashboards/reports. It closes ancestor directory access first while retained descriptors allow child changes. It never changes ancestor permissions outside the selected root. Existing data bytes, names and history are preserved. Runs are idempotent.
+The utility opens the root and every ancestor without following symlinks, then preflights the complete subtree through retained directory-relative descriptors. It rejects parent-traversal root paths and invalid entry limits, rechecks metadata immediately before each chmod, and refuses foreign ownership, cross-device entries, symbolic/hard links, FIFOs and other special files; it checks for detectable concurrent changes. It sets directories to 0700 and regular files to 0600, including historical dashboards/reports. It closes ancestor directory access first while retained descriptors allow child changes. It never changes ancestor permissions outside the selected root. Existing data bytes, names and history are preserved. Runs are idempotent.
 
 Limits and recovery: at most 512 entries per invocation (including directories); for larger stores choose smaller dedicated subtrees and remediate their parent separately. Unreadable files or unsearchable directories fail safely. Quiescence is mandatory: descriptor-based traversal reduces substitution risks but is not a transactional filesystem snapshot or defense against a malicious process running under the same UID. Preflight refusals change nothing. An OS error during chmod can leave partially tightened permissions; stop and inspect locally, then rerun. No automatic rollback broadens permissions. Mode bits do not certify encryption, backups, remote filesystems or all ACL policies. The utility was tested on synthetic fixtures, not run on the owner's evidence.
 
@@ -56,9 +56,22 @@ Added four offline ASGI integration-contract tests and a CI job on candidate Fas
 
 ## Validation and blockers
 
-- Intelligence and migration unittests: 52 passed. Combined Python run: **141 passed, nine pre-existing live backend tests skipped, six subtests passed**; one TestClient transport deprecation warning.
+- Intelligence and migration unittests: 55 passed. Combined Python run: **144 passed, nine pre-existing live backend tests skipped, six subtests passed**; one TestClient transport deprecation warning.
 - Node engine suite and all 24 Node tests passed.
 - Permission tests cover dry-run, exact byte/path retention, idempotence, symlink ancestors, symbolic/hard links, special files, owner and entry limits, and application failure behavior.
-- Container import remains unverified because the prior build failed on the proxy CA chain. No certificate bypass was attempted. Correct trust-store configuration is still required.
+- Hosted CI for head `1fe6e65` passed all four workflows. In KEY-9 Security run 44068600632, both the container build and packaged sandbox-service import passed. The prior local proxy CA failure is an environment-specific limitation, not an outstanding hosted container verification gap. TLS verification was never disabled. A future legacy backend runtime still needs its own container certification.
 - Legacy backend vulnerability/transitive/vendor audit gaps and real database/provider integration gates remain release blockers. Private data permissions remain unchanged until the owner explicitly runs the migration utility in a stopped local environment.
 - PR #28 must remain draft pending owner review. No merge, deployment or intelligence publication is part of this work.
+
+## Final hardening and remediation priority
+
+The final permission regressions exercise symlink substitution between stat/open (outside target permissions unchanged), interrupted application followed by a successful rerun with identical evidence bytes, parent traversal and invalid entry limits. Application rechecks include ctime so detectable link/metadata replacement after preflight is refused. This still requires stopped writers; it is not an atomic multi-file filesystem transaction.
+
+| Priority | Work to complete | Gate / disposition |
+| --- | --- | --- |
+| P0 — before any production release | Maintain the no-publication boundary; keep legacy backend unavailable to untrusted inputs until vulnerability reachability and access policy are established. Review backups and run permission dry-run locally; apply with writers stopped. | No merge/deployment performed here. Utility is ready but owner's actual data has not been changed. |
+| P1 — coordinated runtime fixes | Framework/Starlette upgrade plus compatible HTTP/TLS/parser fixes; Motor/PyMongo migration with disposable MongoDB integration tests. | Stages 1–2 above. Do not independently bump PyMongo or Starlette under the legacy runtime; nine live tests remain unexecuted. |
+| P1 — supply-chain and provider boundary | Replace or inspect vendor SDK/wheel; audit the fully resolved dependency tree; remove genuinely unused vulnerable packages; redact stored provider exceptions. | Stage 3, with actual adapter and storage failure tests. Direct-pin audit alone is insufficient. |
+| P2 — reproducibility and operations | Separate runtime/dev locks, full hashes, SBOM, digest-pinned Docker bases, supported test transport, backup restore drill, encryption/quotas and reviewer identity records. | Stage 4; current supply-chain verifier has zero errors and two tag-only base-image warnings. No added commercial dependency. |
+
+Final local checks include the Node suite and public build, KEY-9 lint/production build and production npm audit, Python compilation, backend lint, supply-chain verification and the combined Python suites. The latest feature commit triggers fresh hosted CI; success recorded above refers explicitly to `1fe6e65`, not a claim that subsequent CI has already completed. PR remains draft and must not be merged or deployed by this work.
