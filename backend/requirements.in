@@ -1,0 +1,6 @@
+# Audited application runtime; vendor SDK, Motor and unrelated tooling removed.
+fastapi==0.141.1
+starlette==1.10.0
+pymongo==4.20.0
+httpx==0.28.1
+uvicorn==0.52.4

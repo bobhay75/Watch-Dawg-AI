@@ -158,7 +158,7 @@ Install backend dependencies:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r backend/requirements.txt
+pip install --require-hashes -r backend/requirements.txt
 ```
 
 Set backend variables:
@@ -166,7 +166,9 @@ Set backend variables:
 ```bash
 export MONGO_URL='YOUR_MONGODB_URL'
 export DB_NAME='watchdawg'
-export EMERGENT_LLM_KEY='YOUR_KEY'
+# Real provider access stays disabled until explicitly configured.
+export LLM_PROVIDER='disabled'
+# See docs/LEGACY-BACKEND-REMEDIATION.md for provider migration and safe tests.
 ```
 
 Set frontend variables:
@@ -182,8 +184,7 @@ Never commit `.env` files, API keys, credentials, or service-account secrets.
 Start the backend:
 
 ```bash
-cd backend
-uvicorn server:app --host 0.0.0.0 --port 8001
+uvicorn backend.server:app --host 127.0.0.1 --port 8001
 ```
 
 Start the frontend in another terminal from the repository root:
@@ -206,7 +207,7 @@ Open `http://localhost:3000`.
 
 ## Deployment model
 
-The full Watch-Dawg AI application requires a runtime that can run the Node frontend proxy and FastAPI backend, plus MongoDB and the required environment variables. The Emergent-hosted runtime is the original full-stack MVP path.
+The full Watch-Dawg AI application requires a runtime that can run the Node frontend proxy and FastAPI backend, plus MongoDB and the required environment variables. The original MVP used a vendor-hosted SDK. The remediated backend uses an explicit provider boundary and PyMongo async driver; see [backend migration notes](docs/LEGACY-BACKEND-REMEDIATION.md).
 
 GitHub Pages intentionally publishes **only** the deterministic browser demo (`index.html` and `watchdawg.js`). Backend code, tests, deployment helpers, and security internals are not included in the Pages artifact.
 
