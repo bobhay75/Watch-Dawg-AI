@@ -30,7 +30,7 @@ def normalize(data, retrieved_at):
         props = feature.get("properties") or {}
         if not isinstance(props, dict):
             continue
-        identifier = props.get("id") or feature.get("id")
+        identifier = props.get("@id") or props.get("id") or feature.get("id")
         observed = props.get("sent")
         if not isinstance(identifier, str) or not identifier.startswith("https://api.weather.gov/alerts/"):
             continue
