@@ -241,3 +241,5 @@ That combination turns Watch-Dawg from a single-purpose demo into a broader **tr
 Backend operational security and synthetic disaster-recovery templates: [private operations runbook](docs/SECURE-OPERATIONS-RUNBOOK.md). These templates do not deploy services or authorize intelligence publication.
 
 Validation results and remaining deployment blockers: [secure operations validation](docs/SECURE-OPERATIONS-VALIDATION.md).
+
+Current PR #31 security review, image findings and integration gates: [PR31-OPERATIONS-REVIEW.md](docs/PR31-OPERATIONS-REVIEW.md).

@@ -1,5 +1,7 @@
 # Secure operations validation — 2026-11-17
 
+This records the original `bc5039b` baseline. The updated [PR #31 review](PR31-OPERATIONS-REVIEW.md) supersedes its KEY-9 build, image-scanning, vulnerability and container-digest findings.
+
 Feature branch: `feature/secure-operations-recovery`, created from `feature/intelligence-brief-plan-2026-11-15` at `4c6f230be6e4f15ac5b512309fdab3bf29b4443b`. No merge, deployment, production data change, live/paid provider contact or intelligence publication was performed. Secrets/certificates/evidence used in tests were generated synthetic fixtures. The new CI job builds/tests locally and never pushes images or starts a production deployment.
 
 ## Implemented controls

@@ -33,10 +33,7 @@ from operations.tokens import (  # noqa: E402
 from operations.mongo_roles import roles  # noqa: E402
 from backend.audit import validate  # noqa: E402
 
-MONGO = (
-    "mongo@sha256:bdc216e9d5a6ec2cfdac789b5832fdab64cd32055f59885cae918"
-    "a92de63c361"
-)
+MONGO = "watchdawg-mongo:operations"
 
 
 def command(*args, data=None):
@@ -104,6 +101,16 @@ def main():
     parser.add_argument("--backend-image", required=True)
     parser.add_argument("--proxy-image", required=True)
     args = parser.parse_args()
+    docker(
+        "build",
+        "--network",
+        "none",
+        "-f",
+        str(ROOT / "deployment/secure/Mongo.Dockerfile"),
+        "-t",
+        MONGO,
+        str(ROOT),
+    )
     suffix = uuid.uuid4().hex[:12]
     prefix = "wdops-" + suffix
     data_net, api_net = prefix + "-data", prefix + "-api"
@@ -229,7 +236,7 @@ def main():
                     MONGO,
                     "-c",
                     "until test -f /run/secrets/ready; do sleep 0.1; done; "
-                    "exec docker-entrypoint.sh mongod --replSet wdops --auth "
+                    "exec mongod --replSet wdops --auth "
                     "--keyFile /run/secrets/repl.key --bind_ip_all --quiet "
                     "--wiredTigerCacheSizeGB 0.25 --tlsMode requireTLS "
                     "--tlsCertificateKeyFile /run/secrets/node.pem --tl"

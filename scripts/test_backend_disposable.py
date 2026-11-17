@@ -21,10 +21,7 @@ import urllib.request
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
-MONGO_IMAGE = (
-    "mongo@sha256:"
-    "bdc216e9d5a6ec2cfdac789b5832fdab64cd32055f59885cae918a92de63c361"
-)
+MONGO_IMAGE = "watchdawg-mongo:operations"
 
 
 def docker(*args):
@@ -45,6 +42,17 @@ def main():
     )
     parser.add_argument("--all-python", action="store_true")
     args = parser.parse_args()
+    # Build only the pinned, non-root disposable variant; never pull a URI.
+    docker(
+        "build",
+        "--network",
+        "none",
+        "-f",
+        str(ROOT / "deployment/secure/Mongo.Dockerfile"),
+        "-t",
+        MONGO_IMAGE,
+        str(ROOT),
+    )
     suffix = uuid.uuid4().hex[:12]
     network = "watchdawg-test-" + suffix
     mongo = network + "-mongo"
@@ -70,7 +78,16 @@ def main():
             "-p",
             "127.0.0.1::27017",
             "--tmpfs",
-            "/data/db:rw,size=1g",
+            "/data/db:rw,size=1g,uid=999,gid=999,mode=0700",
+            "--tmpfs",
+            "/data/configdb:rw,size=16m,uid=999,gid=999,mode=0700",
+            "--tmpfs",
+            "/tmp:rw,size=16m,uid=999,gid=999,mode=0700",
+            "--read-only",
+            "--cap-drop",
+            "ALL",
+            "--security-opt",
+            "no-new-privileges",
             "--memory",
             "1g",
             "--cpus",
