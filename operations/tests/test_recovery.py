@@ -460,6 +460,24 @@ def test_backup_cannot_write_inside_evidence(tmp_path):
     assert sorted(p.name for p in source.iterdir()) == before
 
 
+def test_backup_refuses_manifest_too_large_to_restore(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir(mode=0o700)
+    nested = source / ("d" * 200)
+    nested.mkdir(mode=0o700)
+    # Within the 4096-file and 64 MiB limits, but long legal paths make
+    # the manifest exceed the restore parser's separate 1 MiB limit.
+    for index in range(2048):
+        write_new(nested / (str(index).zfill(4) + "x" * 236), b"")
+    key = tmp_path / "key"
+    write_new(key, secrets.token_bytes(32))
+    destination = tmp_path / "archive.wdb"
+    with pytest.raises(ValueError, match="manifest"):
+        backup(source, key, destination)
+    assert not destination.exists()
+    assert not Path(str(destination) + ".receipt.json").exists()
+
+
 def test_response_audit_failure_releases_unstarted_stream_leases():
     from backend.tests.security_helpers import unit_policy
 

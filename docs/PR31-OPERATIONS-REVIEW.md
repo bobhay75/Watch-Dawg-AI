@@ -16,6 +16,7 @@ Head branch: `feature/secure-operations-recovery`. Initial review head was `bc50
 | KEY-9 build context copied arbitrary remaining source files | Replace broad copying with runtime source allowlists and test the packaged filesystem, non-root execution and absence of build CA/pip. |
 | Two existing container base-tag warnings | Pin KEY-9/Sentinel Python bases to inspected digests. All five Dockerfile bases now have digest pins. |
 | Partial audit tails escaped validation at size/day rotation or could be deleted by retention | Validate every segment tail under the journal lock before append, rotation or pruning, including on restart. Preserve damaged segments and fail closed until operator recovery. Three regression cases reproduced the bypass before the fix and now pass. |
+| Legal long paths could produce a successful backup exceeding restore's manifest limit | Enforce the same 1 MiB manifest bound during creation, before archive/receipt publication. A 2048-file synthetic regression reproduces the failure within the existing file/data limits and verifies refusal without publishing an unusable recovery point. |
 
 The original upstream MongoDB scan found one critical row in gosu's Go standard library and fixable high rows in bundled Go database tools/js-yaml. The minimal variant removes those artifacts. It intentionally does not provide `mongodump`, `mongorestore`, `mongoimport`, `mongoexport`, `bsondump`, `mongofiles`, `mongostat`, `mongotop`, gosu or root initialization. Operators needing these tools require a separately reviewed, patched utility image. Do not reinstall packages inside running containers. The server/shell variant is not a claim that upstream packages or historical vendor artifacts have been repaired.
 
@@ -50,7 +51,7 @@ The development policy blocks **every critical finding**, **high findings with l
 | Local check | Result |
 | --- | --- |
 | Existing Python suites, real disposable MongoDB | 224 passed, six subtests; zero skipped |
-| Operations/recovery/scanner-policy suite | 36 passed; zero skipped (includes three audit rotation/retention regressions) |
+| Operations/recovery/scanner-policy suite | 37 passed; zero skipped (includes three audit rotation/retention regressions and the backup manifest boundary) |
 | Packaged backend / disposable database | 83 passed; overlaps the 224 and is not an additional distinct suite count |
 | Three-voter TLS/mTLS outage/restore/audit-restart runner | Passed with the minimal MongoDB variant and patched backend/proxy |
 | Root Node tests | Legacy engine checks plus 24 passed; zero skipped |

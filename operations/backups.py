@@ -23,6 +23,7 @@ from .files import (
 MAGIC = b"WATCHDAWG-BACKUP-1\n"
 MANIFEST = "_watchdawg_manifest.json"
 MAX_BYTES = 64 * 1024 * 1024
+MAX_MANIFEST_BYTES = 1024 * 1024
 
 
 def valid_name(name):
@@ -120,16 +121,16 @@ def backup(source, key_file, destination, maximum=MAX_BYTES):
                             "sha256": digest(raw),
                         }
                     )
-            zipped.writestr(
-                MANIFEST,
-                canonical(
-                    {
-                        "version": 1,
-                        "files": rows,
-                        "public_release_approved": False,
-                    }
-                ),
+            manifest = canonical(
+                {
+                    "version": 1,
+                    "files": rows,
+                    "public_release_approved": False,
+                }
             )
+            if len(manifest) > MAX_MANIFEST_BYTES:
+                raise ValueError("Snapshot manifest exceeds restore limit")
+            zipped.writestr(MANIFEST, manifest)
         nonce = os.urandom(12)
         encryptor = Cipher(algorithms.AES(key), modes.GCM(nonce)).encryptor()
         encryptor.authenticate_additional_data(MAGIC)
@@ -203,7 +204,7 @@ def restore(archive, key_file, destination, receipt, maximum=MAX_BYTES):
             ):
                 raise ValueError("Unsafe archive paths or duplicate members")
             if (
-                zipped.getinfo(MANIFEST).file_size > 1024 * 1024
+                zipped.getinfo(MANIFEST).file_size > MAX_MANIFEST_BYTES
                 or sum(m.file_size for m in members if m.filename != MANIFEST)
                 > maximum
             ):
