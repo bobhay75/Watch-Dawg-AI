@@ -2,14 +2,20 @@
 """Generate a private NOAA intelligence brief from saved SkyWatch observations."""
 import argparse
 import collections
-import json
+import html
+from urllib.parse import quote
 from pathlib import Path
+
+try:
+    from intelligence_common import load_snapshot, noaa_url
+except ModuleNotFoundError:
+    from scripts.intelligence_common import load_snapshot, noaa_url
 
 def load_latest(folder):
     files = sorted(Path(folder).glob("*-observations.json"))
     if not files:
         raise FileNotFoundError("No observations found; run the NOAA ingester first")
-    doc = json.loads(files[-1].read_text(encoding="utf-8"))
+    doc = load_snapshot(files[-1])
     if not isinstance(doc.get("observations"), list):
         raise ValueError("Invalid observations snapshot")
     return files[-1], doc
@@ -33,11 +39,11 @@ def build_report(doc):
     lines += ["", "### Source-linked alert register", ""]
     for x in sorted(items.values(), key=lambda a: (str(a.get("severity", "")), str(a.get("headline", "")))):
         url = x["source"].get("url", "")
-        if not isinstance(url, str) or not url.startswith("https://api.weather.gov/alerts/"):
+        if not noaa_url(url):
             continue
         headline = str(x.get("headline") or "Untitled").replace("\n", " ").replace("\r", " ")
         headline = headline.replace("[", "(").replace("]", ")")[:250]
-        lines.append("- **" + str(x.get("severity", "Unknown")) + "** — " + headline + " — [NOAA source](" + url + ")")
+        lines.append("- **" + html.escape(str(x.get("severity", "Unknown"))) + "** — " + html.escape(headline) + " — [NOAA source](" + quote(url, safe=":/%?=&") + ")")
     lines += ["", "### Limitations", "",
               "- These are NWS published alerts, not independent field measurements.",
               "- Snapshot counts change; they do not represent unique long-term incidents.",

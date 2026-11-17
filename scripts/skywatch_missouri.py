@@ -2,13 +2,15 @@
 """Missouri NOAA active-alert collector, separate from the national feed. Standard library only."""
 import argparse
 import datetime as dt
-import hashlib
 import html
-import json
 from pathlib import Path
-import urllib.request
 
 from skywatch_noaa_ingest import USER_AGENT, normalize
+
+try:
+    from intelligence_common import read_feed, fetch_json, save_snapshot, noaa_url
+except ModuleNotFoundError:
+    from scripts.intelligence_common import read_feed, fetch_json, save_snapshot, noaa_url
 
 URL = "https://api.weather.gov/alerts/active?area=MO"
 OZARK_TERMS = ("taney", "stone", "christian", "douglas", "ozark", "branson",
@@ -16,11 +18,7 @@ OZARK_TERMS = ("taney", "stone", "christian", "douglas", "ozark", "branson",
                "forsyth", "springfield", "webster", "wright", "barry", "lawrence")
 
 def fetch():
-    req=urllib.request.Request(URL,headers={"User-Agent":USER_AGENT,"Accept":"application/geo+json"})
-    with urllib.request.urlopen(req,timeout=25) as response:
-        if response.status != 200:
-            raise RuntimeError("NOAA returned unexpected status")
-        return json.load(response)
+    return fetch_json(URL, USER_AGENT)[0]
 
 def local_priority(item):
     area=str(item.get("area") or "").lower()
@@ -39,7 +37,7 @@ def render(records,stamp):
     for item in ordered:
         src=item.get("source") or {}
         url=src.get("url","") if isinstance(src,dict) else ""
-        if not isinstance(url,str) or not url.startswith("https://api.weather.gov/alerts/"):
+        if not noaa_url(url):
             continue
         p.append('<li>'+("OZARKS REVIEW PRIORITY · " if local_priority(item) else "")+
                  html.escape(str(item.get("severity") or "Unknown"))+' · '+
@@ -54,17 +52,11 @@ def main():
     ap.add_argument("--fixture",help="Optional local GeoJSON fixture for offline testing")
     ap.add_argument("--output-dir",default="local-data/skywatch/missouri")
     args=ap.parse_args()
-    data=json.loads(Path(args.fixture).read_text(encoding="utf-8")) if args.fixture else fetch()
+    data, raw = read_feed(args.fixture, URL, USER_AGENT)
     stamp=dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00","Z")
     records=normalize(data,stamp)
     folder=Path(args.output_dir)
-    folder.mkdir(parents=True,exist_ok=True)
-    tag=dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    raw=json.dumps(data,sort_keys=True).encode("utf-8")
-    (folder/(tag+"-raw.json")).write_bytes(raw)
-    doc={"source":URL,"retrieved_at":stamp,"raw_sha256":hashlib.sha256(raw).hexdigest(),
-         "observations":records,"public_release_approved":False}
-    (folder/(tag+"-observations.json")).write_text(json.dumps(doc,indent=2)+"\n",encoding="utf-8")
+    save_snapshot(folder, data, {"source":URL,"retrieved_at":stamp,"observations":records}, raw)
     (folder/"missouri-dashboard.html").write_text(render(records,stamp),encoding="utf-8")
     print("Missouri NOAA records:",len(records))
     print("Ozarks keyword matches:",sum(local_priority(x) for x in records))

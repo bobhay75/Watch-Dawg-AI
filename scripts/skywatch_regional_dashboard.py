@@ -1,23 +1,22 @@
 #!/usr/bin/env python3
 """Generate a private searchable, grouped NOAA dashboard from locally saved observations."""
-import collections
 import html
-import json
 from pathlib import Path
-from urllib.parse import urlparse
+
+try:
+    from intelligence_common import load_snapshot, missouri_zone, noaa_url
+except ModuleNotFoundError:
+    from scripts.intelligence_common import load_snapshot, missouri_zone, noaa_url
 
 ROOT = Path("local-data/skywatch")
 SEVERITY_ORDER = {"Extreme": 0, "Severe": 1, "Moderate": 2, "Minor": 3, "Unknown": 4}
 
 def is_missouri(record):
-    zones = record.get("zones") or []
-    return any(isinstance(z, str) and
-               ("/MOZ" in z or "/MOC" in z or "/MO" in z.split("/")[-1][:2])
-               for z in zones)
+    zones = record.get("zones")
+    return isinstance(zones, list) and any(missouri_zone(z) for z in zones)
 
 def valid_source(url):
-    p = urlparse(url) if isinstance(url, str) else urlparse("")
-    return p.scheme == "https" and p.hostname == "api.weather.gov" and p.path.startswith("/alerts/")
+    return noaa_url(url)
 
 def group_records(records):
     groups = {}
@@ -67,7 +66,7 @@ def main():
     paths=sorted(ROOT.glob("*-observations.json"))
     if not paths:
         raise SystemExit("No saved observations; run skywatch_noaa_ingest.py")
-    doc=json.loads(paths[-1].read_text(encoding="utf-8"))
+    doc=load_snapshot(paths[-1])
     records=doc.get("observations")
     if not isinstance(records,list):
         raise SystemExit("Malformed snapshot")

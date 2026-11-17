@@ -1,35 +1,44 @@
 #!/usr/bin/env python3
 """Conservative NASA/NOAA candidate screening. No automatic corroboration."""
-import datetime as dt
 import html
 import json
 from pathlib import Path
+
+try:
+    from intelligence_common import timestamp, missouri_zone, noaa_url, trusted_url, load_snapshot, snapshot_identity
+except ModuleNotFoundError:
+    from scripts.intelligence_common import timestamp, missouri_zone, noaa_url, trusted_url, load_snapshot, snapshot_identity
 
 ROOT=Path("local-data")
 MAX_HOURS=72
 
 def parse_date(value):
-    if not isinstance(value,str):
-        return None
-    try:
-        d=dt.datetime.fromisoformat(value.replace("Z","+00:00"))
-        return d.astimezone(dt.timezone.utc) if d.tzinfo else None
-    except ValueError:
-        return None
+    return timestamp(value)
 
 def candidate(noaa,nasa):
     """Candidate only when Missouri location and observation times are compatible.
     This is NOT event identity or independent corroboration."""
     if not isinstance(noaa,dict) or not isinstance(nasa,dict):
         return None
-    if not nasa.get("missouri_point_match"):
+    if any(not isinstance(row.get("id"), str) or not row["id"].strip() for row in (noaa, nasa)):
+        return None
+    if nasa.get("missouri_point_match") is not True:
         return None
     zones=noaa.get("zones") or []
-    mo_zone=any(isinstance(z,str) and z.rsplit("/",1)[-1].startswith(("MOZ","MOC")) for z in zones)
+    mo_zone=isinstance(zones,list) and any(missouri_zone(z) for z in zones)
     if not mo_zone:
         return None
     observed=parse_date(noaa.get("observed_at"))
-    dates=[parse_date(x) for x in (nasa.get("event_dates") or [])]
+    # Legacy snapshots cannot tie geometry dates to Missouri points: fail closed.
+    local_dates=nasa.get("missouri_event_dates")
+    if not isinstance(local_dates,list):
+        return None
+    ns, es = noaa.get("source"), nasa.get("source")
+    if not isinstance(ns,dict) or not isinstance(es,dict):
+        return None
+    if not noaa_url(ns.get("url")) or not trusted_url(es.get("url"), ("eonet.gsfc.nasa.gov", "earthobservatory.nasa.gov")):
+        return None
+    dates=[parse_date(x) for x in local_dates]
     dates=[x for x in dates if x is not None]
     if observed is None or not dates:
         return None
@@ -43,6 +52,7 @@ def candidate(noaa,nasa):
             "noaa_source":(noaa.get("source") or {}).get("url"),
             "nasa_source":(nasa.get("source") or {}).get("url"),
             "judgment":"candidate_only_not_corroborated",
+            "publication_approved":False,
             "limitations":"Missouri statewide coarse overlap; event identities and spatial footprints unverified"}
 
 def correlate(noaa,events):
@@ -58,7 +68,7 @@ def load_latest(folder):
     paths=sorted(folder.glob("*-observations.json"))
     if not paths:
         return None
-    return json.loads(paths[-1].read_text(encoding="utf-8"))
+    return load_snapshot(paths[-1])
 
 def main():
     noaa=load_latest(ROOT/"skywatch"/"missouri")
@@ -72,7 +82,8 @@ def main():
     results=correlate(alerts,events)
     output=ROOT/"intelligence"
     output.mkdir(parents=True,exist_ok=True)
-    report={"source_timestamps":{"noaa":noaa.get("retrieved_at"),"nasa":nasa.get("retrieved_at")},
+    report={"source_snapshots":{"noaa":snapshot_identity(noaa),"nasa":snapshot_identity(nasa)},
+            "source_timestamps":{"noaa":noaa.get("retrieved_at"),"nasa":nasa.get("retrieved_at")},
             "candidate_count":len(results),"candidates":results,
             "corroborated_event_count":0,"corroboration_assessed":False,
             "public_release_approved":False}
