@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """Trust-Worthy local evidence review of SkyWatch snapshots. No LLM, no network."""
 import argparse
-import datetime as dt
 import hashlib
 import json
 from pathlib import Path
-from urllib.parse import urlparse
+
+try:
+    from intelligence_common import load_snapshot, noaa_url, timestamp
+except ModuleNotFoundError:
+    from scripts.intelligence_common import load_snapshot, noaa_url, timestamp
 
 def valid_noaa_url(url):
-    if not isinstance(url, str):
-        return False
-    p = urlparse(url)
-    return p.scheme == "https" and p.hostname == "api.weather.gov" and p.path.startswith("/alerts/")
+    return noaa_url(url)
 
 def review(doc):
     if not isinstance(doc, dict) or not isinstance(doc.get("observations"), list):
@@ -32,7 +32,7 @@ def review(doc):
         evidence_ok = isinstance(evidence, list) and any(
             isinstance(e, dict) and e.get("kind") == "primary" and e.get("url") == url
             for e in evidence)
-        time_ok = isinstance(item.get("observed_at"), str) and bool(item["observed_at"])
+        time_ok = timestamp(item.get("observed_at")) is not None
         issues = []
         if not source_ok:
             issues.append("Source URL or publisher invalid")
@@ -59,7 +59,7 @@ def main():
     files = sorted(Path(args.input_dir).glob("*-observations.json"))
     if not files:
         parser.error("No observations found; run skywatch_noaa_ingest.py first")
-    doc = json.loads(files[-1].read_text(encoding="utf-8"))
+    doc = load_snapshot(files[-1])
     result = review(doc)
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)

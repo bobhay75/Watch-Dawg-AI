@@ -141,6 +141,33 @@
           "type": "boolean"
         }
       }
+    },
+    "area": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "event": {
+      "type": "string",
+      "maxLength": 120
+    },
+    "headline": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "severity": {
+      "type": "string",
+      "maxLength": 50
+    },
+    "zones": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "string",
+        "format": "uri"
+      }
+    },
+    "publication_approved": {
+      "const": false
     }
   }
 }

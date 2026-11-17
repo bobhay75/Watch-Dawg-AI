@@ -15,3 +15,6 @@ credentials.json
 *.key
 .credentials
 build/
+
+# Private intelligence evidence and offline history must never enter Git.
+local-data/

@@ -3,14 +3,18 @@
 import argparse
 import collections
 import html
-import json
 from pathlib import Path
+
+try:
+    from intelligence_common import load_snapshot, noaa_url
+except ModuleNotFoundError:
+    from scripts.intelligence_common import load_snapshot, noaa_url
 
 def read_snapshots(folder):
     paths = sorted(Path(folder).glob("*-observations.json"))
     if not paths:
         raise FileNotFoundError("No NOAA snapshots; run skywatch_noaa_ingest.py")
-    snapshots = [(p, json.loads(p.read_text(encoding="utf-8"))) for p in paths]
+    snapshots = [(p, load_snapshot(p)) for p in paths]
     for _, doc in snapshots:
         if not isinstance(doc.get("observations"), list):
             raise ValueError("Malformed observations snapshot")
@@ -46,7 +50,7 @@ def render(current, delta, stamp):
     for item in sorted(records,key=lambda x: (str(x.get("severity","")),str(x.get("headline","")))):
         src = item.get("source") or {}
         url = src.get("url", "") if isinstance(src,dict) else ""
-        if not isinstance(url,str) or not url.startswith("https://api.weather.gov/alerts/"):
+        if not noaa_url(url):
             continue
         label = html.escape(str(item.get("headline") or "NOAA alert")[:300])
         page.append('<li><b>'+html.escape(str(item.get("severity","Unknown")))+'</b> — '+label+' — <a rel="noopener noreferrer" href="'+html.escape(url,quote=True)+'">NOAA source</a></li>')

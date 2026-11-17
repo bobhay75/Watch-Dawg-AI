@@ -6,17 +6,26 @@ import html
 import json
 from pathlib import Path
 
+try:
+    from intelligence_common import load_snapshot, snapshot_identity
+except ModuleNotFoundError:
+    from scripts.intelligence_common import load_snapshot, snapshot_identity
+
 def latest(folder, pattern):
     paths=sorted(Path(folder).glob(pattern))
     if not paths:
         return None
-    doc=json.loads(paths[-1].read_text(encoding="utf-8"))
-    return doc if isinstance(doc,dict) else None
+    doc=load_snapshot(paths[-1])
+    if not isinstance(doc,dict):
+        raise ValueError("Malformed snapshot document")
+    return doc
 
 def summarize(national, missouri, nasa):
     def records(doc,key):
         if doc is None:
             return None
+        if not isinstance(doc,dict):
+            raise ValueError("Malformed snapshot document")
         value=doc.get(key)
         if not isinstance(value,list):
             raise ValueError("Malformed "+key+" collection")
@@ -27,8 +36,8 @@ def summarize(national, missouri, nasa):
     return {"national_noaa":len(nat) if nat is not None else None,
             "missouri_noaa":len(mo) if mo is not None else None,
             "nasa_eonet":len(events) if events is not None else None,
-            "nasa_missouri_point_matches":sum(bool(x.get("missouri_point_match")) for x in events if isinstance(x,dict)) if events is not None else None,
-            "nasa_ozarks_point_matches":sum(bool(x.get("ozarks_point_match")) for x in events if isinstance(x,dict)) if events is not None else None,
+            "nasa_missouri_point_matches":sum((x.get("missouri_point_match") is True) for x in events if isinstance(x,dict)) if events is not None else None,
+            "nasa_ozarks_point_matches":sum((x.get("ozarks_point_match") is True) for x in events if isinstance(x,dict)) if events is not None else None,
             "sources_present":sum(x is not None for x in (nat,mo,events)),
             "cross_source_event_corroboration":"not_assessed",
             "publication_approved":False}
@@ -61,7 +70,7 @@ def main():
     output.parent.mkdir(parents=True,exist_ok=True)
     output.write_text(render(result,stamps),encoding="utf-8")
     audit={"generated_at":dt.datetime.now(dt.timezone.utc).isoformat(),"summary":result,
-           "source_snapshots":stamps,"public_release_approved":False}
+           "source_snapshots":{k:snapshot_identity(v) if v is not None else None for k,v in docs.items()},"public_release_approved":False}
     (output.parent/"cross-source-coverage.json").write_text(json.dumps(audit,indent=2)+"\n",encoding="utf-8")
     print("Coverage report:",output)
     print("Sources present:",result["sources_present"],"of 3")
