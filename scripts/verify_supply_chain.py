@@ -15,6 +15,35 @@ def _issue(level: str, code: str, path: Path, detail: str) -> dict[str, str]:
     return {"level": level, "code": code, "path": path.as_posix(), "detail": detail}
 
 
+def logical_requirements(text: str):
+    """Join pip hash continuations without treating hashes as dependencies."""
+    pending = ''
+    start = 0
+    for number, line in enumerate(text.splitlines(), 1):
+        value = line.strip()
+        if not value or value.startswith('#'):
+            continue
+        if not pending:
+            start = number
+        continued = value.endswith('\\')
+        pending += (' ' if pending else '') + (value[:-1].rstrip() if continued else value)
+        if not continued:
+            yield start, pending
+            pending = ''
+    if pending:
+        yield start, pending + ' INVALID_CONTINUATION'
+
+
+def pinned_requirement(value: str) -> bool:
+    parts = value.split(' --hash=')
+    requirement = parts[0]
+    exact = re.fullmatch(r'[A-Za-z0-9_.-]+(?:\[[A-Za-z0-9_,.-]+\])?==[A-Za-z0-9_.+!-]+', requirement)
+    url = re.fullmatch(r'[A-Za-z0-9_.-]+ @ https://\S+#sha256=[0-9a-f]{64}', requirement)
+    return bool(exact or url) and all(
+        re.fullmatch(r'sha256:[0-9a-f]{64}', digest) for digest in parts[1:]
+    )
+
+
 def inspect_root(root: Path) -> dict[str, Any]:
     root = root.resolve()
     issues: list[dict[str, str]] = []
@@ -37,16 +66,16 @@ def inspect_root(root: Path) -> dict[str, Any]:
                     f"{action} must use a full 40-character commit SHA",
                 ))
 
-    for requirements in sorted(root.rglob("requirements.txt")):
+    for requirements in sorted(root.rglob("requirements*.txt")):
         if any(part in {".git", "build", "node_modules"} for part in requirements.relative_to(root).parts):
             continue
         relative = requirements.relative_to(root)
-        for line_number, line in enumerate(requirements.read_text(encoding="utf-8").splitlines(), start=1):
+        for line_number, line in logical_requirements(requirements.read_text(encoding="utf-8")):
             value = line.strip()
             if not value or value.startswith("#"):
                 continue
             dependencies_checked += 1
-            pinned = "==" in value or (" @ https://" in value and "#sha256=" in value)
+            pinned = pinned_requirement(value)
             if not pinned:
                 issues.append(_issue(
                     "error",
