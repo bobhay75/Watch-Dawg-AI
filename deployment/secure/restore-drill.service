@@ -1,0 +1,15 @@
+[Unit]
+Description=WatchDawg synthetic encrypted restore drill (no production access)
+[Service]
+Type=oneshot
+User=watchdawg
+Group=watchdawg
+WorkingDirectory=/opt/watchdawg
+ExecStart=/opt/watchdawg/.venv/bin/python -m operations.cli drill --workspace /var/lib/watchdawg/drills
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/watchdawg/drills
+RestrictAddressFamilies=AF_UNIX

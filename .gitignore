@@ -15,3 +15,13 @@ credentials.json
 *.key
 .credentials
 build/
+
+# Private intelligence evidence and offline history must never enter Git.
+local-data/
+
+# Local backend policy, HMAC material and service tokens.
+.backend-secrets/
+
+# Dedicated local operational staging; never evidence/build inputs.
+.operations-private/
+.operations-drills/

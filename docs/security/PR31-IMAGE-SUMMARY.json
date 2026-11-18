@@ -1,0 +1,139 @@
+{
+  "database_metadata": {
+    "DownloadedAt": "2026-11-17T16:53:49.02195514Z",
+    "NextUpdate": "2026-11-18T13:00:16.23116036Z",
+    "UpdatedAt": "2026-11-17T13:00:16.23116094Z",
+    "Version": 2
+  },
+  "images": [
+    {
+      "development_blockers": [],
+      "end_of_life": false,
+      "fixable_medium_rows": 0,
+      "full_report_sha256": "6ce41566563e42d725d541409c3306a175a6beb5252efab948d55070d748f85e",
+      "image": "watchdawg-backend:operations",
+      "image_id": "sha256:d787a3c7e65f33644d600fcb4a2f1bfaeeab9e2e51f787fee393928bdc570fb7",
+      "production_approved": false,
+      "scan_created_at": "2026-11-17T10:59:25.55105347-06:00",
+      "severity_rows": {
+        "HIGH": 47,
+        "LOW": 65,
+        "MEDIUM": 92,
+        "UNKNOWN": 5
+      },
+      "status": "PASS_WITH_FINDINGS",
+      "unfixed_high_advisory_ids": [
+        "CVE-2025-69720",
+        "CVE-2026-119373",
+        "CVE-2026-119374",
+        "CVE-2026-119379",
+        "CVE-2026-16742",
+        "CVE-2026-54369",
+        "CVE-2026-76642",
+        "CVE-2026-78408",
+        "CVE-2026-78409",
+        "CVE-2026-78410",
+        "CVE-2026-9538"
+      ],
+      "unfixed_high_rows": 47
+    },
+    {
+      "development_blockers": [],
+      "end_of_life": false,
+      "fixable_medium_rows": 0,
+      "full_report_sha256": "85bf21a0265eb418ecc83711a72c4c2bbc5660346f9027540efad39a78bd3ae5",
+      "image": "watchdawg-proxy:operations",
+      "image_id": "sha256:3dfda0619df79ac0be7bfd7d270adf621072550e00927782e388444cce8ca9b3",
+      "production_approved": false,
+      "scan_created_at": "2026-11-17T10:59:26.181834546-06:00",
+      "severity_rows": {},
+      "status": "PASS",
+      "unfixed_high_advisory_ids": [],
+      "unfixed_high_rows": 0
+    },
+    {
+      "development_blockers": [],
+      "end_of_life": false,
+      "fixable_medium_rows": 0,
+      "full_report_sha256": "8628ce8f4c8bf02a7b2db6380a4545ed8e72242f1f85632e365dcc05450552d4",
+      "image": "watchdawg-key9:operations",
+      "image_id": "sha256:03020a418f84ebd04a3a2865bdd3fb7d96e3841fc84bed585f492e72a1921556",
+      "production_approved": false,
+      "scan_created_at": "2026-11-17T11:01:00.471014854-06:00",
+      "severity_rows": {
+        "HIGH": 47,
+        "LOW": 65,
+        "MEDIUM": 92,
+        "UNKNOWN": 5
+      },
+      "status": "PASS_WITH_FINDINGS",
+      "unfixed_high_advisory_ids": [
+        "CVE-2025-69720",
+        "CVE-2026-119373",
+        "CVE-2026-119374",
+        "CVE-2026-119379",
+        "CVE-2026-16742",
+        "CVE-2026-54369",
+        "CVE-2026-76642",
+        "CVE-2026-78408",
+        "CVE-2026-78409",
+        "CVE-2026-78410",
+        "CVE-2026-9538"
+      ],
+      "unfixed_high_rows": 47
+    },
+    {
+      "development_blockers": [],
+      "end_of_life": false,
+      "fixable_medium_rows": 0,
+      "full_report_sha256": "a399cf3dd4aa4a1dfcc6a3520f6ab8cb19e9ab209d8c5b647b4ed7f4e4cef52b",
+      "image": "watchdawg-sentinel:operations",
+      "image_id": "sha256:5826914ba0f483d617089dc64ae7674e35eecce30cfe460867572dee9aa5eba5",
+      "production_approved": false,
+      "scan_created_at": "2026-11-17T11:01:01.854877556-06:00",
+      "severity_rows": {
+        "HIGH": 47,
+        "LOW": 65,
+        "MEDIUM": 92,
+        "UNKNOWN": 5
+      },
+      "status": "PASS_WITH_FINDINGS",
+      "unfixed_high_advisory_ids": [
+        "CVE-2025-69720",
+        "CVE-2026-119373",
+        "CVE-2026-119374",
+        "CVE-2026-119379",
+        "CVE-2026-16742",
+        "CVE-2026-54369",
+        "CVE-2026-76642",
+        "CVE-2026-78408",
+        "CVE-2026-78409",
+        "CVE-2026-78410",
+        "CVE-2026-9538"
+      ],
+      "unfixed_high_rows": 47
+    },
+    {
+      "development_blockers": [],
+      "end_of_life": false,
+      "fixable_medium_rows": 13,
+      "full_report_sha256": "22d7c68dbe9bdd2c869fe6ab19f97fb828c1e067f6c4036ba0579962e136032b",
+      "image": "watchdawg-mongo:operations",
+      "image_id": "sha256:4a70548d223ddb07afb60b2187071f3b487e763650f5007db4e76706ec18fd4d",
+      "production_approved": false,
+      "scan_created_at": "2026-11-17T11:03:25.154409151-06:00",
+      "severity_rows": {
+        "LOW": 6,
+        "MEDIUM": 49
+      },
+      "status": "PASS_WITH_FINDINGS",
+      "unfixed_high_advisory_ids": [],
+      "unfixed_high_rows": 0
+    }
+  ],
+  "policy": "block all critical, fixable high, EOL, missing analysis, and wrong-image reports; report all residual findings",
+  "production_approved": false,
+  "scanner": "Trivy 0.76.2",
+  "scanner_archive_sha256": "bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf",
+  "scope": "local synthetic-only validation; CI rebuilds and binds its own image IDs"
+}

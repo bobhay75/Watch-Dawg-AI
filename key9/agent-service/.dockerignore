@@ -1,6 +1,10 @@
-__pycache__/
-.pytest_cache/
-.venv/
-tests/
-*.pyc
-.env
+# Runtime-only context. Never send evidence, secrets or tests to the builder.
+**
+!requirements.txt
+!main.py
+!agents/
+!agents/**/
+!agents/**/*.py
+!key9_core/
+!key9_core/**/
+!key9_core/**/*.py
