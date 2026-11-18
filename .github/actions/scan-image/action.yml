@@ -1,0 +1,45 @@
+name: Scan built runtime image
+description: Verified FOSS scanner; complete OS/library report and development gate
+inputs:
+  image:
+    description: Locally built image tag (never a production registry target)
+    required: true
+  python-packages:
+    description: Require Python package detection for runtimes with dependencies
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - name: Scan actual image including vendored dependencies
+      shell: bash
+      env:
+        SCAN_IMAGE: ${{ inputs.image }}
+        REQUIRE_PYTHON: ${{ inputs.python-packages }}
+      run: |
+        set -euo pipefail
+        umask 077
+        tool_dir=$(mktemp -d "$RUNNER_TEMP/watchdawg-trivy.XXXXXXXX")
+        curl --fail --location --retry 2 --connect-timeout 10 --max-time 180 \
+          https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_Linux-64bit.tar.gz \
+          -o "$tool_dir/trivy.tar.gz"
+        printf '%s  %s\n' \
+          bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf \
+          "$tool_dir/trivy.tar.gz" | sha256sum -c -
+        tar -xzf "$tool_dir/trivy.tar.gz" -C "$tool_dir" trivy
+        chmod 700 "$tool_dir/trivy"
+        expected_id=$(docker image inspect --format '{{.Id}}' "$SCAN_IMAGE")
+        "$tool_dir/trivy" image --image-src docker --scanners vuln \
+          --cache-dir "$RUNNER_TEMP/watchdawg-trivy-cache" \
+          --db-repository ghcr.io/aquasecurity/trivy-db:2 \
+          --skip-check-update --skip-version-check --no-progress \
+          --ignorefile "" --timeout 5m --format json \
+          --output "$tool_dir/full-report.json" "$SCAN_IMAGE"
+        args=()
+        case "$REQUIRE_PYTHON" in
+          true) args+=(--require-python) ;;
+          false) ;;
+          *) echo 'Invalid scanner configuration' >&2; exit 2 ;;
+        esac
+        python scripts/check_image_vulnerabilities.py "${args[@]}" \
+          --report "$tool_dir/full-report.json" \
+          --expected-image "$SCAN_IMAGE" --expected-id "$expected_id"

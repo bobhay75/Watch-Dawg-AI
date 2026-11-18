@@ -102,7 +102,7 @@ def inspect_root(root: Path) -> dict[str, Any]:
                 "package dependencies require a committed package-lock.json",
             ))
 
-    for dockerfile in sorted(root.rglob("Dockerfile")):
+    for dockerfile in sorted(root.rglob("*Dockerfile")):
         relative = dockerfile.relative_to(root)
         if any(part in {".git", "build", "node_modules"} for part in relative.parts):
             continue

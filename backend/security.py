@@ -1,7 +1,7 @@
 """Service authentication, shared abuse controls and private logs."""
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone, timedelta
 import hashlib
 import hmac
@@ -19,6 +19,16 @@ import uuid
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 from starlette.responses import JSONResponse, Response
+
+if __package__:
+    from .audit import AuditUnavailable
+else:
+    from audit import AuditUnavailable
+
+
+class PolicyUnavailable(RuntimeError):
+    pass
+
 
 LOG = logging.getLogger("watchdawg.security")
 if not LOG.handlers:
@@ -311,8 +321,22 @@ class MongoSecurityStore:
 
 
 class Security:
-    def __init__(self, policy, store):
+    def __init__(self, policy, store, policy_path=None):
         self.policy, self.store = policy, store
+        self.policy_path = policy_path
+
+    def for_request(self):
+        if not self.policy_path:
+            return self
+        try:
+            current = Policy.load(self.policy_path)
+            if replace(current, principals=()) != replace(
+                self.policy, principals=()
+            ):
+                raise ValueError("Non-credential policy changed")
+            return Security(current, self.store)
+        except Exception:
+            raise PolicyUnavailable("Credential policy unavailable") from None
 
     async def budget(self, subject, limit):
         now = time.time()
@@ -356,19 +380,38 @@ class Security:
                 pass
 
 
-def audit(request_id, route, status, principal="anonymous"):
-    LOG.info(
-        json.dumps(
-            {
-                "event": "backend_request",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "request_id": request_id,
-                "route": route,
-                "status": status,
-                "principal_ref": principal,
-            },
-            separators=(",", ":"),
-        )
+def emit(event, sink=None):
+    if sink is not None:
+        sink.write(event)
+    else:
+        LOG.info(json.dumps(event, separators=(",", ":")))
+
+
+def audit(request_id, route, status, principal="anonymous", sink=None):
+    emit(
+        {
+            "event": "backend_request",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "request_id": request_id,
+            "route": route,
+            "status": status,
+            "principal_ref": principal,
+        },
+        sink,
+    )
+
+
+def admission(request_id, route, principal, sink=None):
+    emit(
+        {
+            "event": "backend_admission",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "request_id": request_id,
+            "route": route,
+            "decision": "authorized",
+            "principal_ref": principal,
+        },
+        sink,
     )
 
 
@@ -390,11 +433,11 @@ class SecurityMiddleware:
         origin = None
         policy = None
         started = False
+        sink = getattr(scope["app"].state, "audit_sink", None)
 
         async def output(message):
             nonlocal started
             if message["type"] == "http.response.start":
-                started = True
                 headers = [
                     (k, v)
                     for k, v in message.get("headers", [])
@@ -411,7 +454,8 @@ class SecurityMiddleware:
                         (b"vary", b"Origin"),
                     ]
                 message = dict(message, headers=headers)
-                audit(request_id, route, message["status"], subject)
+                audit(request_id, route, message["status"], subject, sink)
+                started = True
             await send(message)
 
         async def deny(status, detail):
@@ -422,12 +466,19 @@ class SecurityMiddleware:
             )
             if status == 401:
                 headers["WWW-Authenticate"] = "Bearer"
-            await JSONResponse(
-                {"detail": detail}, status_code=status, headers=headers
-            )(scope, receive, output)
+            try:
+                await JSONResponse(
+                    {"detail": detail}, status_code=status, headers=headers
+                )(scope, receive, output)
+            except AuditUnavailable:
+                await JSONResponse(
+                    {"detail": "Durable audit unavailable"},
+                    status_code=503,
+                    headers={"Cache-Control": "no-store"},
+                )(scope, receive, send)
 
         try:
-            security = scope["app"].state.security
+            security = scope["app"].state.security.for_request()
             policy = security.policy
             values = {}
             if sum(len(k) + len(v) for k, v in scope["headers"]) > 32768:
@@ -521,7 +572,15 @@ class SecurityMiddleware:
             await security.budget(
                 "principal:" + principal.name, policy.principal_limit
             )
-            scope.setdefault("state", {})["principal"] = principal
+            scope.setdefault("state", {})["security"] = security
+            scope["state"]["principal"] = principal
+            admission(request_id, route, subject, sink)
+        except AuditUnavailable:
+            return await JSONResponse(
+                {"detail": "Durable audit unavailable"}, status_code=503
+            )(scope, receive, send)
+        except PolicyUnavailable:
+            return await deny(503, "Credential policy unavailable")
         except Limited:
             return await deny(429, "Request budget exceeded")
         except (ValueError, UnicodeError):
@@ -530,6 +589,11 @@ class SecurityMiddleware:
             return await deny(503, "Security service unavailable")
         try:
             await self.app(scope, receive, output)
+        except AuditUnavailable:
+            if not started:
+                await JSONResponse(
+                    {"detail": "Durable audit unavailable"}, status_code=503
+                )(scope, receive, send)
         except (RecursionError, UnicodeDecodeError):
             if not started:
                 await deny(400, "Malformed request")
@@ -538,21 +602,24 @@ class SecurityMiddleware:
             if not started:
                 await deny(500, "Backend request failed")
             else:
-                audit_outcome(request_id, "failed", subject)
+                audit_outcome(request_id, "failed", subject, sink)
+        finally:
+            # A response-header audit failure may precede stream iteration.
+            pending = scope.get("state", {}).pop("active_security_leases", [])
+            if pending:
+                await security.release(pending)
 
 
-def audit_outcome(request_id, outcome, principal_ref):
+def audit_outcome(request_id, outcome, principal_ref, sink=None):
     if outcome not in {"completed", "failed", "cancelled"}:
         raise ValueError("Invalid audit outcome")
-    LOG.info(
-        json.dumps(
-            {
-                "event": "backend_stream",
-                "request_id": request_id,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "outcome": outcome,
-                "principal_ref": principal_ref,
-            },
-            separators=(",", ":"),
-        )
+    emit(
+        {
+            "event": "backend_stream",
+            "request_id": request_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "outcome": outcome,
+            "principal_ref": principal_ref,
+        },
+        sink,
     )

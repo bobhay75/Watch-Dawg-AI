@@ -237,3 +237,9 @@ Watch-Dawg is strongest when presented as one system with two defensible layers:
 2. **Agent trust boundary:** let AI systems perform authorized work without handing them unrestricted secrets or silent authority.
 
 That combination turns Watch-Dawg from a single-purpose demo into a broader **trust and control layer for AI-assisted small-business operations**.
+
+Backend operational security and synthetic disaster-recovery templates: [private operations runbook](docs/SECURE-OPERATIONS-RUNBOOK.md). These templates do not deploy services or authorize intelligence publication.
+
+Validation results and remaining deployment blockers: [secure operations validation](docs/SECURE-OPERATIONS-VALIDATION.md).
+
+Current PR #31 security review, image findings and integration gates: [PR31-OPERATIONS-REVIEW.md](docs/PR31-OPERATIONS-REVIEW.md).

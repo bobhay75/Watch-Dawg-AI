@@ -21,3 +21,7 @@ local-data/
 
 # Local backend policy, HMAC material and service tokens.
 .backend-secrets/
+
+# Dedicated local operational staging; never evidence/build inputs.
+.operations-private/
+.operations-drills/
