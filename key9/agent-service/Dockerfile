@@ -15,11 +15,12 @@ RUN apt-get update \
 COPY requirements.txt .
 # Optional build-only trust bundle; never disable package TLS verification.
 RUN --mount=type=secret,id=package_ca \
+    set -eu; \
     if [ -s /run/secrets/package_ca ]; then \
-      PIP_CERT=/run/secrets/package_ca python -m pip install --no-cache-dir -r requirements.txt; \
-    else \
-      python -m pip install --no-cache-dir -r requirements.txt; \
-    fi
+      export PIP_CERT=/run/secrets/package_ca; \
+    fi; \
+    python -m pip install --no-cache-dir --require-hashes --only-binary=:all: -r requirements.txt; \
+    python -m pip check
 RUN python -m pip uninstall --yes pip
 
 RUN adduser --disabled-password --gecos "" key9 && chown -R key9:key9 /app

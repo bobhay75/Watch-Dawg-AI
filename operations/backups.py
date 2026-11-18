@@ -2,7 +2,9 @@
 restore.
 """
 
+import ctypes
 from datetime import datetime, timezone
+import errno
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -24,6 +26,47 @@ MAGIC = b"WATCHDAWG-BACKUP-1\n"
 MANIFEST = "_watchdawg_manifest.json"
 MAX_BYTES = 64 * 1024 * 1024
 MAX_MANIFEST_BYTES = 1024 * 1024
+AT_FDCWD = -100
+RENAME_NOREPLACE = 1
+
+
+def _publish_restore(stage, destination, directories):
+    # Flush every directory entry, including intermediate directories that
+    # contain only subdirectories. Publish atomically without replacing even
+    # an empty destination created while the archive was being verified.
+    for path in sorted(
+        directories, key=lambda path: len(path.parts), reverse=True
+    ):
+        fd = private_directory(path)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    rename = getattr(ctypes.CDLL(None, use_errno=True), "renameat2", None)
+    if rename is None:
+        raise OSError(errno.ENOSYS, "Exclusive restore requires renameat2")
+    rename.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    rename.restype = ctypes.c_int
+    fd = private_directory(destination.parent)
+    try:
+        if rename(
+            AT_FDCWD,
+            os.fsencode(stage),
+            fd,
+            os.fsencode(destination.name),
+            RENAME_NOREPLACE,
+        ) != 0:
+            error = ctypes.get_errno()
+            raise OSError(error, os.strerror(error), destination)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def valid_name(name):
@@ -41,6 +84,10 @@ def key_bytes(path):
     if len(key) != 32:
         raise ValueError("A private 256-bit encryption key is required")
     return key
+
+
+def _raise_walk_error(error):
+    raise error
 
 
 def backup(source, key_file, destination, maximum=MAX_BYTES):
@@ -67,7 +114,9 @@ def backup(source, key_file, destination, maximum=MAX_BYTES):
         with zipfile.ZipFile(
             archive, "w", compression=zipfile.ZIP_STORED
         ) as zipped:
-            for root, dirs, files in os.walk(source, followlinks=False):
+            for root, dirs, files in os.walk(
+                source, onerror=_raise_walk_error, followlinks=False
+            ):
                 if any((Path(root) / name).is_symlink() for name in dirs):
                     raise ValueError(
                         "Linked directories are not evidence snapshots"
@@ -193,6 +242,7 @@ def restore(archive, key_file, destination, receipt, maximum=MAX_BYTES):
             )  # Authenticate before any evidence extraction.
         stage = Path(temp) / "verified"
         stage.mkdir(mode=0o700)
+        directories = {stage}
         with zipfile.ZipFile(plain) as zipped:
             members = zipped.infolist()
             names = [m.filename for m in members]
@@ -236,11 +286,7 @@ def restore(archive, key_file, destination, receipt, maximum=MAX_BYTES):
                 for component in Path(row["path"]).parent.parts:
                     parent = parent / component
                     parent.mkdir(mode=0o700, exist_ok=True)
+                    directories.add(parent)
                 write_new(target, data)
-        os.rename(stage, destination)
-        fd = private_directory(destination.parent)
-        try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
+        _publish_restore(stage, destination, directories)
     return {"restored_files": len(rows), "public_release_approved": False}

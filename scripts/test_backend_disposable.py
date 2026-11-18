@@ -45,8 +45,6 @@ def main():
     # Build only the pinned, non-root disposable variant; never pull a URI.
     docker(
         "build",
-        "--network",
-        "none",
         "-f",
         str(ROOT / "deployment/secure/Mongo.Dockerfile"),
         "-t",
