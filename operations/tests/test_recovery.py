@@ -16,6 +16,7 @@ from backend.tests.security_helpers import (
     MemorySecurityStore,
 )
 from backend.tests.test_backend_migration_contract import MemoryStore
+from operations import backups
 from operations.backups import backup, restore
 from operations.cli import synthetic_drill
 from operations.files import write_new, canonical, digest
@@ -70,6 +71,29 @@ def test_wrong_key_corruption_and_symlink_fail_without_restore(tmp_path):
     (source / "link").symlink_to(key)
     with pytest.raises((ValueError, OSError)):
         backup(source, key, tmp_path / "refused.wdb")
+
+
+def test_restore_preserves_destination_created_during_extraction(
+    tmp_path, monkeypatch
+):
+    _, key, encrypted = setup_archive(tmp_path)
+    destination = tmp_path / "concurrent"
+    receipt = encrypted.with_suffix(".wdb.receipt.json")
+    original_stat = None
+
+    def write_with_concurrent_destination(path, data):
+        nonlocal original_stat
+        destination.mkdir(mode=0o700)
+        original_stat = destination.stat()
+        write_new(path, data)
+
+    monkeypatch.setattr(
+        backups, "write_new", write_with_concurrent_destination
+    )
+    with pytest.raises(FileExistsError):
+        restore(encrypted, key, destination, receipt)
+    assert destination.stat().st_ino == original_stat.st_ino
+    assert list(destination.iterdir()) == []
 
 
 def test_synthetic_drill_is_self_contained(tmp_path):
