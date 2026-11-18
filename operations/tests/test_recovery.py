@@ -77,6 +77,25 @@ def test_synthetic_drill_is_self_contained(tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
+def test_backup_refuses_incomplete_directory_walk(tmp_path, monkeypatch):
+    source, key, _ = setup_archive(tmp_path)
+    unreadable = source / "unreadable"
+    unreadable.mkdir()
+    real_scandir = os.scandir
+
+    def scandir(path):
+        if path == str(unreadable):
+            raise PermissionError("Cannot enumerate evidence directory")
+        return real_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", scandir)
+    destination = tmp_path / "incomplete.wdb"
+    with pytest.raises(PermissionError, match="Cannot enumerate"):
+        backup(source, key, destination)
+    assert not destination.exists()
+    assert not destination.with_suffix(".wdb.receipt.json").exists()
+
+
 def event():
     return {
         "event": "backend_request",

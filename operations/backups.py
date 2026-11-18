@@ -43,6 +43,10 @@ def key_bytes(path):
     return key
 
 
+def _raise_walk_error(error):
+    raise error
+
+
 def backup(source, key_file, destination, maximum=MAX_BYTES):
     source, destination = Path(source), Path(destination)
     if (
@@ -67,7 +71,9 @@ def backup(source, key_file, destination, maximum=MAX_BYTES):
         with zipfile.ZipFile(
             archive, "w", compression=zipfile.ZIP_STORED
         ) as zipped:
-            for root, dirs, files in os.walk(source, followlinks=False):
+            for root, dirs, files in os.walk(
+                source, onerror=_raise_walk_error, followlinks=False
+            ):
                 if any((Path(root) / name).is_symlink() for name in dirs):
                     raise ValueError(
                         "Linked directories are not evidence snapshots"
