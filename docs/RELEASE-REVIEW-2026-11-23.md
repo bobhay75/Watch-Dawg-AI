@@ -56,9 +56,18 @@ Both disposable runners now use a shared image-build helper with a bounded
 600-second setup deadline and streamed Docker build output. Ordinary Docker
 commands retain their 120-second limits, readiness polling keeps its existing
 deadlines, and the operations workflow retains its 20-minute overall limit.
-The pinned Dockerfile, package-signature checks, image scans, private transport
-checks and recovery assertions are unchanged. Setup timeouts and nonzero build
-exits still stop validation; there is no automatic retry or fallback image.
+The pinned base image, package-signature checks, minimum patched versions, image
+scans, private transport checks and recovery assertions remain enforced. Setup
+timeouts and nonzero build exits still stop validation; the whole build is not
+retried and there is no fallback image.
+
+The first hosted run with streamed setup logs completed the recovery suite, but
+the parallel backend job exposed another setup bottleneck: Ubuntu's HTTP
+indexes, including unused universe and backports, took over six minutes to
+download. The Dockerfile now requests only signed Ubuntu main, updates and
+security indexes over HTTPS. Network requests have a 30-second timeout and at
+most two transport retries within the unchanged 600-second overall build limit.
+The MongoDB repository remains excluded and its server version stays pinned.
 
 Offline regressions cover the original cold-build timing case, successful
 execution of the pinned build command, termination of a stalled process, and
