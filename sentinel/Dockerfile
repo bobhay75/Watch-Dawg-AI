@@ -10,12 +10,17 @@ WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends --only-upgrade zlib1g \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' zlib1g)" ge '1:1.3.dfsg+really1.3.1-1+deb13u1' \
-    && rm -rf /var/lib/apt/lists/* \
-    && python -m pip uninstall --yes pip
+    && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --create-home --uid 10001 sentinel \
-    && mkdir /state \
-    && chown sentinel:sentinel /state
+    && install -d -m 0700 -o sentinel -g sentinel /state
+
+COPY sentinel/requirements.txt /tmp/sentinel-requirements.txt
+
+RUN python -m pip install --disable-pip-version-check --no-cache-dir \
+    --require-hashes --requirement /tmp/sentinel-requirements.txt \
+    && rm /tmp/sentinel-requirements.txt \
+    && python -m pip uninstall --yes pip
 
 COPY --chown=sentinel:sentinel sentinel /app/sentinel
 

@@ -1,0 +1,1 @@
+{"device_id":"example-owned-device","collected_at":"2026-09-17T00:00:00Z","sensors":{"camera":true,"microphone":true,"identity":true,"process":true,"network":true},"posture":{"disk_encrypted":true,"secure_boot":true,"screen_lock":true,"security_updates_current":true},"mesh":{"enabled":false,"peer_count":0,"signed_updates_only":true,"raw_data_sharing":false},"events":[]}

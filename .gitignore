@@ -25,3 +25,5 @@ local-data/
 # Dedicated local operational staging; never evidence/build inputs.
 .operations-private/
 .operations-drills/
+android-sensor/.gradle/
+android-sensor/local.properties
