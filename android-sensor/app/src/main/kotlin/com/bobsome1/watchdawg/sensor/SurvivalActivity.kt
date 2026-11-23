@@ -16,6 +16,8 @@ import android.os.Handler
 import android.os.Looper
 import android.os.StatFs
 import android.provider.Settings
+import android.text.InputFilter
+import android.util.Log
 import android.view.Gravity
 import android.view.WindowManager
 import android.widget.Button
@@ -34,13 +36,14 @@ import com.google.ai.edge.litertlm.Role
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileOutputStream
 import java.util.Date
 import java.util.Locale
 
@@ -48,10 +51,16 @@ import java.util.Locale
 class SurvivalActivity : Activity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val handler = Handler(Looper.getMainLooper())
-    private var engine: Engine? = null
-    private var conversation: Conversation? = null
+    private val modelOwner = LocalModelOwner<Engine, Conversation>(
+        { if (it.isInitialized()) it.close() },
+        { it.close() }
+    )
+    private val modelStorage = AtomicModelFile()
+    private val modelGeneration = EditGeneration()
+    private var modelWork: Job? = null
     private var busy = false
-    private var locationListener: LocationListener? = null
+    private var destroyed = false
+    private val locationRequest = SingleRequest<LocationListener>()
     private lateinit var status: TextView
     private lateinit var guide: TextView
     private lateinit var chatLog: TextView
@@ -69,10 +78,22 @@ class SurvivalActivity : Activity() {
     }
 
     override fun onDestroy() {
-        locationListener?.let { (getSystemService(LOCATION_SERVICE) as LocationManager).removeUpdates(it) }
+        destroyed = true
+        modelGeneration.markChanged()
+        cancelLocationRequest()
+        handler.removeCallbacksAndMessages(null)
+        modelOwner.requestShutdown()
         scope.cancel()
-        conversation?.close()
-        engine?.close()
+        // Cancellation does not interrupt a blocking native call. Cleanup owns no Activity,
+        // and waits off the UI thread until that call returns before releasing its resources.
+        val resources = modelOwner
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                resources.close()
+            } catch (error: Exception) {
+                Log.w("WatchDawgSurvival", "Could not close local AI resources", error)
+            }
+        }
         super.onDestroy()
     }
 
@@ -143,7 +164,8 @@ class SurvivalActivity : Activity() {
         }
         content.addView(chatLog)
         question = EditText(this).apply {
-            hint = "Ask an offline question"
+            hint = "Ask an offline question (up to 4,000 characters)"
+            filters = arrayOf(InputFilter.LengthFilter(LocalPrompt.MAX_CHARS))
             setTextColor(0xff17201b.toInt())
             setHintTextColor(0xff58645c.toInt())
             setBackgroundColor(0xfff8fff9.toInt())
@@ -151,11 +173,7 @@ class SurvivalActivity : Activity() {
         }
         content.addView(question, matchWrap())
         content.addView(button("Ask local AI") { askModel() })
-        content.addView(button("Clear conversation from this screen") {
-            conversation?.close()
-            conversation = null
-            chatLog.text = "Conversation cleared. Load the model again for a fresh session."
-        })
+        content.addView(button("Clear conversation from this screen") { clearConversation() })
         content.addView(label(
             "This is a reference aid, not an emergency service, clinician, weather alert, map, or source of current facts. " +
                 "For immediate danger, call 911 when service is available and follow local officials. Verify critical advice.",
@@ -193,45 +211,57 @@ class SurvivalActivity : Activity() {
         if (requestCode == REQUEST_EXPORT) exportNotesTo(data.data!!)
     }
 
+    /** All UI completions belong to the latest operation; cancelled work cannot reset its state. */
+    private fun launchModelWork(
+        replace: Boolean = false,
+        onError: (Exception) -> Unit,
+        work: suspend () -> Unit
+    ) {
+        if (destroyed || (busy && !replace)) return
+        if (replace) modelWork?.cancel()
+        val generation = modelGeneration.markChanged()
+        busy = true
+        modelWork = scope.launch {
+            try {
+                work()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (!destroyed && modelGeneration.isCurrent(generation)) onError(error)
+            } finally {
+                if (!destroyed && modelGeneration.isCurrent(generation)) {
+                    busy = false
+                    modelWork = null
+                }
+            }
+        }
+    }
+
     private fun importModel(uri: Uri) {
         if (busy) return
-        busy = true
         status.text = "Importing model to private app storage…"
-        scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching {
-                    val temp = File(filesDir, MODEL_FILE + ".tmp")
-                    contentResolver.openInputStream(uri)?.use { input ->
-                        FileOutputStream(temp).use { output ->
-                            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                            var bytes = 0L
-                            while (true) {
-                                val count = input.read(buffer)
-                                if (count < 0) break
-                                bytes += count
-                                if (bytes > MAX_MODEL_BYTES) error("Model file is over the 2 GB import limit.")
-                                output.write(buffer, 0, count)
-                            }
-                            output.fd.sync()
-                            if (bytes < MIN_MODEL_BYTES) error("Selected file is too small to be a supported model.")
-                        }
-                    } ?: error("Android could not open the selected file.")
-                    conversation?.close()
-                    conversation = null
-                    engine?.close()
-                    engine = null
-                    if (modelFile.exists() && !modelFile.delete()) error("Could not replace the existing model.")
-                    if (!temp.renameTo(modelFile)) error("Could not safely finish storing the model.")
-                    "Model imported (" + modelFile.length() / MB + " MB). Stored locally and ready to load."
-                }.onFailure { File(filesDir, MODEL_FILE + ".tmp").delete() }
+        launchModelWork(onError = { status.text = "Import failed: " + (it.message ?: "unknown error") }) {
+            withContext(Dispatchers.IO) {
+                val context = currentCoroutineContext()
+                val cancellation = LocalModelOwner.Check { context.ensureActive() }
+                val target = modelFile
+                val input = contentResolver.openInputStream(uri)
+                    ?: error("Android could not open the selected file.")
+                val staged = modelStorage.stage(target, input, MIN_MODEL_BYTES, MAX_MODEL_BYTES, cancellation)
+                try {
+                    modelOwner.reset({ modelStorage.commit(staged, target, cancellation) }, cancellation)
+                } finally {
+                    // A failed/cancelled import never deletes the installed model.
+                    staged.delete()
+                }
             }
-            busy = false
-            status.text = result.getOrElse { "Import failed: " + (it.message ?: "unknown error") }
-            if (result.isSuccess) status.text = deviceStatus()
+            chatLog.text = "Model imported. Load it for a new local AI session."
+            status.text = deviceStatus()
         }
     }
 
     private fun loadModel() {
+        if (busy) return
         if (!modelFile.isFile) {
             status.text = "Import a .litertlm model file first."
             return
@@ -240,94 +270,116 @@ class SurvivalActivity : Activity() {
             status.text = "This model build needs a 64-bit Android runtime."
             return
         }
-        if (busy) return
-        busy = true
         chatLog.text = "Loading local model on CPU. First load can take a while…"
-        scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching {
-                    val manager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-                    val memory = ActivityManager.MemoryInfo()
-                    manager.getMemoryInfo(memory)
-                    if (memory.availMem < MIN_FREE_RAM_BYTES) {
-                        error("Android reports less than 900 MB free. Close other apps and retry.")
-                    }
-                    conversation?.close()
-                    conversation = null
-                    engine?.close()
-                    val localEngine = Engine(
-                        EngineConfig(
+        launchModelWork(onError = { chatLog.text = "Model could not load: " + (it.message ?: "unknown error") }) {
+            withContext(Dispatchers.IO) {
+                val manager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                val memory = ActivityManager.MemoryInfo()
+                manager.getMemoryInfo(memory)
+                if (memory.availMem < MIN_FREE_RAM_BYTES) {
+                    error("Android reports less than 900 MB free. Close other apps and retry.")
+                }
+                val context = currentCoroutineContext()
+                modelOwner.load(
+                    {
+                        Engine(EngineConfig(
                             modelPath = modelFile.absolutePath,
                             backend = Backend.CPU(threadCount = 4),
                             maxNumTokens = 2048,
                             cacheDir = cacheDir.absolutePath
-                        )
-                    )
-                    localEngine.initialize()
-                    val localConversation = localEngine.createConversation(
-                        ConversationConfig(
+                        ))
+                    },
+                    { it.initialize() },
+                    { localEngine ->
+                        localEngine.createConversation(ConversationConfig(
                             systemInstruction = Contents.of(
                                 SYSTEM_INSTRUCTION + "\n\nOffline field guide references:\n" +
                                     GUIDES.values.joinToString("\n\n")
                             )
-                        )
-                    )
-                    engine = localEngine
-                    conversation = localConversation
-                    "Local AI is ready. Inference runs on the CPU without a network service."
-                }
+                        ))
+                    },
+                    { context.ensureActive() }
+                )
             }
-            busy = false
-            chatLog.text = result.getOrElse { "Model could not load: " + (it.message ?: "unknown error") }
+            chatLog.text = "Local AI is ready. Inference runs on the CPU without a network service."
             status.text = deviceStatus()
         }
     }
 
     private fun askModel() {
-        val chat = conversation
-        val prompt = question.text.toString().trim()
-        if (chat == null) {
+        if (busy) return
+        if (!modelOwner.isReady()) {
             status.text = "Load the local model before asking a question."
             return
         }
-        if (prompt.isBlank() || busy) return
-        busy = true
+        val prompt = try {
+            LocalPrompt.validate(question.text.toString())
+        } catch (error: IllegalArgumentException) {
+            status.text = error.message
+            return
+        }
         question.text.clear()
         chatLog.append("\n\nYOU: " + prompt + "\nWATCH-DAWG: ")
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    chat.sendMessageAsync(prompt).collect { part ->
-                        if (part.role == Role.MODEL) {
-                            val chunk = part.contents.contents
-                                .mapNotNull { (it as? com.google.ai.edge.litertlm.Content.Text)?.text }
-                                .joinToString("")
-                            if (chunk.isNotEmpty()) runOnUiThread { chatLog.append(chunk) }
-                        }
-                    }
-                }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                chatLog.append("\n[Local model error: " + (error.message ?: "unknown error") + "]")
-            } finally {
-                busy = false
+        status.text = "Generating a local answer. Clear/remove waits for the current native request to finish."
+        launchModelWork(onError = {
+            chatLog.append("\n[Local model error: " + (it.message ?: "unknown error") + "]")
+        }) {
+            val answer = withContext(Dispatchers.IO) {
+                val context = currentCoroutineContext()
+                modelOwner.use({ chat ->
+                    // LiteRT 0.18.1 Flow cancellation does not cancel its native async request.
+                    // A synchronous worker call holds ownership until native work has returned.
+                    val part = chat.sendMessage(prompt, maxOutputToken = MAX_OUTPUT_TOKENS)
+                    if (part.role == Role.MODEL) part.contents.contents
+                        .mapNotNull { (it as? com.google.ai.edge.litertlm.Content.Text)?.text }
+                        .joinToString("") else ""
+                }, { context.ensureActive() })
             }
+            chatLog.append(answer)
+            status.text = deviceStatus()
+        }
+    }
+
+    private fun clearConversation() {
+        chatLog.text = "Clearing local AI after any current native request finishes…"
+        launchModelWork(replace = true, onError = {
+            status.text = "Could not clear local AI: " + (it.message ?: "unknown error")
+        }) {
+            withContext(Dispatchers.IO) {
+                val context = currentCoroutineContext()
+                modelOwner.reset({}, { context.ensureActive() })
+            }
+            chatLog.text = "Conversation cleared. Load the model again for a fresh session."
+            status.text = deviceStatus()
         }
     }
 
     private fun removeModel() {
-        conversation?.close()
-        conversation = null
-        engine?.close()
-        engine = null
-        val removed = !modelFile.exists() || modelFile.delete()
-        File(filesDir, MODEL_FILE + ".tmp").delete()
-        chatLog.text = "Local AI stopped. Conversation is not saved."
-        status.text = if (removed) deviceStatus() else "Could not remove local model file."
+        chatLog.text = "Removing local AI after any current native request finishes…"
+        launchModelWork(replace = true, onError = {
+            status.text = "Could not remove local model: " + (it.message ?: "unknown error")
+        }) {
+            withContext(Dispatchers.IO) {
+                val context = currentCoroutineContext()
+                modelOwner.reset({
+                    if (modelFile.exists() && !modelFile.delete()) error("Could not remove the model file.")
+                }, { context.ensureActive() })
+            }
+            chatLog.text = "Local AI stopped. Conversation is not saved."
+            status.text = deviceStatus()
+        }
+    }
+
+    private fun cancelLocationRequest() {
+        try {
+            locationRequest.clear()
+        } catch (error: SecurityException) {
+            Log.w("WatchDawgSurvival", "Location access changed while removing its listener", error)
+        }
     }
 
     private fun requestLocation() {
+        cancelLocationRequest()
         val fine = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val coarse = checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (!fine && !coarse) {
@@ -350,27 +402,33 @@ class SurvivalActivity : Activity() {
         status.text = "Requesting a fresh GPS fix for up to 45 seconds. Go outdoors with a clear sky view."
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
+                if (destroyed || !locationRequest.isCurrent(this)) return
+                cancelLocationRequest()
                 displayLocation(location, "GPS fix")
-                manager.removeUpdates(this)
-                locationListener = null
             }
             @Deprecated("Retained for platform callback compatibility.")
             override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
             override fun onProviderEnabled(provider: String) = Unit
             override fun onProviderDisabled(provider: String) = Unit
         }
-        locationListener = listener
+        val timeout = Runnable {
+            if (!destroyed && locationRequest.isCurrent(listener)) {
+                cancelLocationRequest()
+                status.text = "GPS wait ended without a fresh fix. Try outdoors with Android Location enabled."
+            }
+        }
+        locationRequest.replace(listener) {
+            try {
+                manager.removeUpdates(listener)
+            } finally {
+                handler.removeCallbacks(timeout)
+            }
+        }
         try {
             manager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0L, 0f, listener, Looper.getMainLooper())
-            handler.postDelayed({
-                if (locationListener === listener) {
-                    manager.removeUpdates(listener)
-                    locationListener = null
-                    status.text = "GPS wait ended without a fresh fix. Try outdoors with Android Location enabled."
-                }
-            }, LOCATION_TIMEOUT_MS)
+            handler.postDelayed(timeout, LOCATION_TIMEOUT_MS)
         } catch (error: SecurityException) {
-            locationListener = null
+            cancelLocationRequest()
             status.text = "Android did not grant location access: " + error.message
         }
     }
@@ -445,6 +503,7 @@ class SurvivalActivity : Activity() {
         const val MODEL_FILE = "survival-model.litertlm"
         const val NOTES_KEY = "survival_notes_v1"
         const val MAX_NOTES_CHARS = 16_000
+        const val MAX_OUTPUT_TOKENS = 512
         const val MAX_MODEL_BYTES = 2L * 1024 * 1024 * 1024
         const val MIN_MODEL_BYTES = 100L * 1024 * 1024
         const val MIN_FREE_RAM_BYTES = 900L * 1024 * 1024

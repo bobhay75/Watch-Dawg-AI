@@ -16,10 +16,49 @@ main. Their source branches and draft pull requests remain intact.
   cryptography 50.0.2 and hash all transitive dependencies. Install that lock in
   the combined backend test job because it now includes signed Android ingest
   tests. Include Python package inventory in the final Sentinel image scan.
-- Identify this combined app as version code 4, `0.3.0-survival-preview`, and
+- Identify the corrected combined app as version code 5, `0.3.1-survival-preview`, and
   retain APK metadata, SHA-256 and unit/lint reports from the same CI build.
 - Reuse the existing shield/check vector in a dark, adaptive launcher icon.
   Correct the sensor README to disclose Survival OS's optional GPS permission.
+
+## Survival lifecycle review fixes
+
+The reconciliation review found that the inherited Survival activity could
+close a native conversation/engine while a background load or inference still
+used it, leak an initialized engine when conversation creation failed, or
+delete the prior model before a replacement rename succeeded. The corrected
+activity routes load, inference, cleanup and model file changes through one
+serialized owner. Unpublished resources are released in a `finally` block on
+failure or cancellation. Destruction rejects further work immediately and
+performs cleanup off the UI thread, after native work returns.
+
+LiteRT-LM 0.18.1's Flow adapter has an empty `awaitClose` handler: cancelling
+collection does not itself establish that native inference has stopped. This
+preview therefore uses a synchronous native request on the IO worker while
+holding resource ownership, with a 512-token output limit. An answer appears
+when generation finishes. Clear/remove can be requested immediately but wait
+for that native request before closing; this avoids treating coroutine
+cancellation as proof that native resources are safe to free.
+
+Imports write and sync a unique temporary file beside the installed model.
+Replacement requests an atomic move and has no delete-first or non-atomic
+fallback. Import/read/size/cancellation/move failures retain the old model.
+This is atomic replacement, not a claim about recovery from every filesystem
+or hardware fault. GPS keeps one active listener and timeout, ignores stale
+callbacks, and cancels both on replacement/destruction. Questions are bounded
+to 4,000 characters in the UI and again before inference.
+
+The extracted Java regressions exercise concurrent native work versus close
+and removal, initialization/conversation failures, shutdown/cancellation before
+publication, cleanup ordering, actual atomic replacement and injected move
+failure, import failures and provider-close failure, repeated GPS request
+cleanup, stale callbacks, and the prompt boundary. These tests use controlled
+resources/files; real LiteRT inference and physical GPS remain device checks.
+
+Source behavior checked:
+
+- [LiteRT-LM v0.18.1 Conversation](https://github.com/google-ai-edge/LiteRT-LM/blob/v0.18.1/kotlin/java/com/google/ai/edge/litertlm/Conversation.kt)
+- [Android Files.move contract](https://developer.android.com/reference/java/nio/file/Files)
 
 ## Validation and release boundary
 
