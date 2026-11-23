@@ -126,6 +126,7 @@
       }
 
       .hero-copy, .panel {
+        min-width: 0;
         border: 1px solid var(--line);
         background: rgba(18,18,23,.82);
       }
@@ -212,6 +213,8 @@
         grid-template-columns: minmax(0, 1.1fr) minmax(320px, .9fr);
         gap: 18px;
       }
+
+      .console > * { min-width: 0; }
 
       .toolbar {
         display: flex;
@@ -336,6 +339,7 @@
         background: #000;
         color: #e6fbff;
         white-space: pre-wrap;
+        overflow-wrap: anywhere;
         font: 13px/1.65 'JetBrains Mono', monospace;
         box-shadow: inset 0 0 28px rgba(0,229,255,.08);
       }
@@ -387,6 +391,7 @@
         margin: 16px 0 0;
         padding: 16px;
         white-space: pre-wrap;
+        overflow-wrap: anywhere;
         border: 1px solid rgba(0,229,255,.2);
         background: #000;
         color: #dff7e9;
@@ -412,7 +417,7 @@
       .toast.show { opacity: 1; transform: translateY(0); }
 
       @media (max-width: 1080px) {
-        .hero, .console { grid-template-columns: 1fr; }
+        .hero, .console { grid-template-columns: minmax(0, 1fr); }
         .dashboard { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .span-2, .span-3 { grid-column: span 2; }
       }
@@ -420,11 +425,16 @@
       @media (max-width: 700px) {
         .shell { width: min(100% - 22px, 1480px); padding-top: 14px; }
         .topbar { align-items: flex-start; flex-direction: column; }
-        .dashboard { grid-template-columns: 1fr; }
+        .dashboard { grid-template-columns: minmax(0, 1fr); }
         .span-2, .span-3 { grid-column: span 1; }
         .hero-copy, .panel, .hero-side { padding: 18px; }
         textarea { min-height: 360px; }
       }
+      .owner-login:not([hidden]) { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; align-items: end; margin-bottom: 14px; }
+      .owner-login label { display: grid; gap: 7px; font-size: 13px; }
+      .owner-login input { width: 100%; padding: 12px; border: 1px solid #53616a; border-radius: 8px; background: #10191e; color: #f5f7f8; }
+      #ownerStatus { color: #bdcbd3; font-size: 14px; overflow-wrap: anywhere; }
+      #ownerLogin[hidden], #ownerLogout[hidden] { display: none; }
     </style>
     <link rel="stylesheet" href="./assets/css/watchdawg-attribution.css">
 </head>
@@ -544,6 +554,13 @@
 
         <section class="panel span-2" data-testid="ai-insights-panel">
           <div class="label">ChatGPT AI Insights</div>
+          <p id="ownerStatus" role="status">Checking owner sign-in configuration…</p>
+          <form id="ownerLogin" class="owner-login" hidden>
+            <label for="ownerUsername">Owner ID<input id="ownerUsername" name="username" autocomplete="username" maxlength="64" required></label>
+            <label for="ownerPassword">Password<input id="ownerPassword" name="password" type="password" autocomplete="current-password" maxlength="1024" required></label>
+            <button id="ownerSubmit" type="submit">Sign in for AI insights</button>
+          </form>
+          <button id="ownerLogout" type="button" hidden>Sign out</button>
           <div id="aiStatus" class="ai-status" data-testid="ai-analysis-status">Waiting for audit</div>
           <div id="aiInsights" class="ai-output" data-testid="ai-insights-output">Run an audit to generate AI explanation, next actions, and a review-ready summary.</div>
         </section>
@@ -561,6 +578,7 @@
 
     <script type="module">
       import { runWatchDawg, sampleScenarios } from './watchdawg.js';
+      import { createOwnerClient } from './owner-client.js';
 
       if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
       window.scrollTo({ top: 0, left: 0 });
@@ -575,6 +593,52 @@
       const aiStatus = $('aiStatus');
       let latestReport = '';
       let aiAbortController = null;
+      let ownerSessionVersion = 0;
+      const ownerClient = createOwnerClient(state => {
+        if (state.sessionVersion !== ownerSessionVersion) {
+          ownerSessionVersion = state.sessionVersion;
+          if (aiAbortController) aiAbortController.abort();
+          aiStatus.textContent = state.authenticated ? 'Ready for an owner audit' : 'Owner sign-in required';
+          aiInsights.textContent = 'Run a new audit after signing in. The local audit remains available.';
+        }
+        $('ownerLogin').hidden = !state.enabled || state.authenticated || state.signingOut || state.signoutUnconfirmed;
+        $('ownerLogout').hidden = !state.authenticated && !state.signingOut && !state.signoutUnconfirmed;
+        $('ownerLogout').textContent = state.signoutUnconfirmed ? 'Retry sign out' : 'Sign out';
+        $('ownerStatus').textContent = state.signingOut ? 'Signing out…'
+          : state.signoutUnconfirmed ? 'Sign-out could not be confirmed. Retry when the service is available.'
+          : state.unavailable ? 'Owner sign-in is unavailable on this host. The local audit remains available.'
+          : !state.enabled ? 'AI owner sign-in is not configured on this host. The local audit remains available.'
+          : state.authenticated ? `Signed in as ${state.owner}. AI requests still require an available, approved backend.`
+          : 'Sign in as the configured owner to request AI insights. The local audit works without sign-in.';
+      });
+      const ownerReady = ownerClient.refresh().catch(() => {});
+      $('ownerLogin').addEventListener('submit', async event => {
+        event.preventDefault();
+        const password = $('ownerPassword').value;
+        $('ownerPassword').value = '';
+        $('ownerSubmit').disabled = true;
+        try {
+          await ownerClient.login($('ownerUsername').value, password);
+        } catch (error) {
+          $('ownerStatus').textContent = error.message;
+        } finally {
+          $('ownerSubmit').disabled = false;
+        }
+      });
+      $('ownerLogout').addEventListener('click', async () => {
+        if (aiAbortController) aiAbortController.abort();
+        aiStatus.textContent = 'Signing out';
+        $('ownerLogout').disabled = true;
+        try {
+          await ownerClient.logout();
+          aiStatus.textContent = 'Owner signed out';
+          aiInsights.textContent = 'Sign in again to request AI insights. The local audit remains available.';
+        } catch {
+          aiStatus.textContent = 'Sign-out unconfirmed';
+          $('ownerStatus').textContent = 'Sign-out could not be confirmed. Retry when the service is available.';
+        }
+        finally { $('ownerLogout').disabled = false; }
+      });
 
       const money = (value) => `$${Number(value || 0).toFixed(2)}`;
       const pretty = (value) => JSON.stringify(value, null, 2);
@@ -657,62 +721,39 @@
         renderLedger(result);
       }
 
-      async function generateAiInsights(result) {
+      async function generateAiInsights(result, payload) {
         if (aiAbortController) aiAbortController.abort();
-        aiAbortController = new AbortController();
-        aiStatus.textContent = 'ChatGPT analyzing';
+        const controller = new AbortController();
+        aiAbortController = controller;
+        aiStatus.textContent = 'Checking AI access';
         aiInsights.textContent = '';
 
         try {
-          const response = await fetch('/api/ai/audit', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              payload: JSON.parse(input.value),
-              deterministic_result: result,
-              report: result.report
-            }),
-            signal: aiAbortController.signal
+          await ownerReady;
+          if (controller.signal.aborted || aiAbortController !== controller) return;
+          aiStatus.textContent = 'ChatGPT analyzing';
+          await ownerClient.audit({ payload, deterministic_result: result, report: result.report }, controller.signal, chunk => {
+            if (!controller.signal.aborted && aiAbortController === controller) aiInsights.textContent += chunk;
           });
-
-          if (!response.ok || !response.body) throw new Error('AI service unavailable');
-
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = '';
-
-          while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const events = buffer.split('\n\n');
-            buffer = events.pop() || '';
-
-            for (const event of events) {
-              const line = event.split('\n').find((item) => item.startsWith('data: '));
-              if (!line) continue;
-              const message = JSON.parse(line.slice(6));
-              if (message.delta) aiInsights.textContent += message.delta;
-              if (message.error) throw new Error(message.error);
-              if (message.done) aiStatus.textContent = 'ChatGPT analysis complete';
-            }
-          }
-
+          if (controller.signal.aborted || aiAbortController !== controller) return;
+          aiStatus.textContent = 'ChatGPT analysis complete';
           if (!aiInsights.textContent.trim()) aiInsights.textContent = 'No AI analysis returned.';
-          if (aiStatus.textContent !== 'ChatGPT analysis complete') aiStatus.textContent = 'ChatGPT analysis complete';
         } catch (error) {
-          if (error.name === 'AbortError') return;
-          aiStatus.textContent = 'ChatGPT unavailable';
-          aiInsights.textContent = 'AI analysis could not be generated right now. The deterministic Watch-Dawg audit above is still complete and reliable.';
+          if (controller.signal.aborted || aiAbortController !== controller) return;
+          aiStatus.textContent = error.ownerRequired ? 'Owner sign-in required' : 'AI analysis incomplete';
+          const detail = error.ownerRequired ? error.message
+            : 'AI analysis could not be completed. Any partial answer is incomplete.';
+          aiInsights.textContent = detail + ' The deterministic Watch-Dawg audit above remains available.';
         }
       }
 
       function runAudit(options = { withAi: true }) {
+        if (aiAbortController) aiAbortController.abort();
         try {
           const payload = JSON.parse(input.value);
           const result = runWatchDawg(payload);
           renderResult(result);
-          if (options.withAi) generateAiInsights(result);
+          if (options.withAi) generateAiInsights(result, payload);
           showToast(result.status === 'VERIFIED' ? 'AUDIT VERIFIED' : 'REVIEW REQUIRED');
         } catch (error) {
           const result = {
@@ -723,12 +764,13 @@
             report: `Invalid JSON: ${error.message}`
           };
           renderResult(result);
-          if (options.withAi) generateAiInsights(result);
+          aiStatus.textContent = 'AI not requested';
+          aiInsights.textContent = 'Correct the JSON input before requesting AI insights.';
           showToast('INVALID JSON');
         }
       }
 
-      $('runButton').addEventListener('click', runAudit);
+      $('runButton').addEventListener('click', () => runAudit());
       $('verifiedButton').addEventListener('click', () => setScenario('verified'));
       $('ledgerButton').addEventListener('click', () => setScenario('ledger'));
       $('anomalyButton').addEventListener('click', () => setScenario('anomaly'));
@@ -744,7 +786,7 @@
       input.value = pretty(sampleScenarios.ledger);
       runAudit({ withAi: false });
       aiStatus.textContent = 'Ready for next audit';
-      aiInsights.textContent = 'Press Run Watch-Dawg or load a scenario. ChatGPT will automatically generate insights after that audit completes.';
+      aiInsights.textContent = 'Run Watch-Dawg or load a scenario for a local audit. AI insights additionally require configured owner sign-in and an available backend.';
     </script>
   </body>
 </html>

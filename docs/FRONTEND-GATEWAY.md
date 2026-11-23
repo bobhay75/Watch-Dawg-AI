@@ -30,9 +30,11 @@ variables take precedence.
 - The upstream host is fixed by server configuration. Only Authorization,
   Content-Type, Accept and Origin are forwarded from callers. Cookies and
   caller-supplied Host, forwarding headers, roles and scope headers are omitted.
-- Backend authentication errors and Retry-After are preserved. No service
-  credential is stored or injected by this frontend. Upstream cookies and
-  arbitrary upstream headers are not exposed to browsers.
+- Backend authentication errors and Retry-After are preserved. With owner mode
+  disabled, caller Authorization is forwarded as before. The optional owner
+  adapter uses only its configured server-held scoped credential after owner
+  session/CSRF checks; a caller Authorization header is rejected in that mode.
+  Upstream cookies and arbitrary upstream headers are not exposed to browsers.
 - Request bodies are bounded to 256 KiB and ten seconds. Upstream responses
   have a 95-second total deadline, a 65-second idle deadline and a 2 MiB bound.
   SSE bytes remain streaming. A failure after response headers closes the
@@ -42,12 +44,13 @@ variables take precedence.
 
 ## Deployment boundary
 
-This patch fixes the transport and crash defects; it does not create a browser
-identity service. The hardened backend still requires registered bearer tokens,
-scopes, approved transport, network/origin policies, MongoDB and private audit
-storage. The public deterministic demo is usable without an AI provider. Browser
-AI remains unavailable until a separately configured operator identity gateway
-is integrated. Do not put a service token in HTML, JavaScript or browser storage.
+The optional single-owner adapter is described in
+[OWNER-SESSION-GATEWAY.md](OWNER-SESSION-GATEWAY.md). It is disabled unless an
+owner-only configuration file is supplied. Its login UI honestly reports that
+configuration state. The hardened backend still requires registered bearer
+tokens, scopes, approved transport, network/origin policies, MongoDB and private
+audit storage. The public deterministic demo remains usable without an AI
+provider. Do not put a service token in HTML, JavaScript or browser storage.
 
 This frontend intentionally strips X-Forwarded-Proto. It must not be registered
 as a TLS-attesting proxy for the backend. Use direct verified HTTPS, or a reviewed

@@ -4,10 +4,11 @@ import { createReadStream, readFileSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createOwnerSession, loadOwnerConfig, readPrivateFile } from './owner-session.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const staticFiles = new Set([
-  '/index.html', '/watchdawg.js', '/assets/brand/watchdawg-bobsome1.png',
+  '/index.html', '/watchdawg.js', '/owner-client.js', '/assets/brand/watchdawg-bobsome1.png',
   '/assets/css/watchdawg-attribution.css',
 ]);
 const types = new Map([
@@ -89,13 +90,14 @@ async function readBody(req, maximum, timeoutMs) {
   });
 }
 
-/** Fixed upstream, explicit public files, and no stored or injected credentials.
- * Caller bearer tokens still undergo the backend's scopes, transport, origin,
- * network, budget and audit checks. This gateway does not attest forwarded TLS.
+/** Fixed upstream and explicit public files. The optional owner adapter keeps
+ * its scoped credential on the server; otherwise caller authorization is forwarded.
+ * Backend scopes/transport/origin/network/budget/audit remain authoritative.
  */
 export function createFrontendServer({ backend, bodyLimit = 256 * 1024,
   bodyTimeoutMs = 10_000, upstreamTimeoutMs = 95_000,
-  upstreamIdleTimeoutMs = 65_000, responseLimit = 2 * 1024 * 1024 } = {}) {
+  upstreamIdleTimeoutMs = 65_000, responseLimit = 2 * 1024 * 1024,
+  ownerConfig, ownerClock, tls } = {}) {
   const base = new URL(backend);
   if (!['http:', 'https:'].includes(base.protocol) || base.username || base.password
       || base.search || base.hash || base.pathname !== '/') {
@@ -104,6 +106,10 @@ export function createFrontendServer({ backend, bodyLimit = 256 * 1024,
   for (const value of [bodyLimit, bodyTimeoutMs, upstreamTimeoutMs, upstreamIdleTimeoutMs, responseLimit]) {
     if (!Number.isSafeInteger(value) || value < 1) throw new Error('Gateway limits must be positive integers');
   }
+  if (ownerConfig && base.protocol !== 'https:' && !['127.0.0.1', '[::1]'].includes(base.hostname)) {
+    throw new Error('Owner credentials require verified HTTPS or a private loopback backend');
+  }
+  const owner = ownerConfig ? createOwnerSession(ownerConfig, ownerClock ? { now: ownerClock } : {}) : null;
 
   async function proxyApi(req, res, path) {
     if (!apiMethods.has(path)) return reply(res, 404, 'Not found');
@@ -113,6 +119,8 @@ export function createFrontendServer({ backend, bodyLimit = 256 * 1024,
     // API queries are not part of the current contract. Never forward alternate
     // URL encodings, user-supplied authorities, credentials or identity headers.
     if (req.url !== path) return reply(res, 400, 'Invalid API path');
+    const ownerAuthorization = owner?.authorizeApi(req, res);
+    if (owner && !ownerAuthorization) return;
     let body;
     try { body = await readBody(req, bodyLimit, bodyTimeoutMs); }
     catch (error) {
@@ -124,6 +132,7 @@ export function createFrontendServer({ backend, bodyLimit = 256 * 1024,
     for (const name of ['authorization', 'content-type', 'accept', 'origin']) {
       if (typeof req.headers[name] === 'string') headers[name] = req.headers[name];
     }
+    if (ownerAuthorization) headers.authorization = ownerAuthorization;
     const transport = target.protocol === 'https:' ? https : http;
     let upstream;
     const proxy = transport.request(target, { method: req.method, headers }, incoming => {
@@ -172,6 +181,14 @@ export function createFrontendServer({ backend, bodyLimit = 256 * 1024,
     let path;
     try { path = requestPath(req.url); }
     catch { return reply(res, 400, 'Invalid path'); }
+    if (path.startsWith('/auth/')) {
+      if (owner) return owner.handle(req, res, path, readBody);
+      if (req.url === '/auth/session' && req.method === 'GET') {
+        res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+        return res.end(JSON.stringify({ enabled: false, authenticated: false }));
+      }
+      return reply(res, 404, 'Owner sign-in is not configured');
+    }
     if (path.startsWith('/api/')) return proxyApi(req, res, path);
     const mapped = path === '/' ? '/index.html' : path;
     if (!staticFiles.has(mapped)) {
@@ -196,9 +213,10 @@ export function createFrontendServer({ backend, bodyLimit = 256 * 1024,
     }
   }
 
-  const server = http.createServer((req, res) => {
+  const listener = (req, res) => {
     handle(req, res).catch(() => reply(res, 500, 'Request could not be completed'));
-  });
+  };
+  const server = tls ? https.createServer(tls, listener) : http.createServer(listener);
   server.headersTimeout = 10_000;
   server.requestTimeout = 15_000;
   server.keepAliveTimeout = 5_000;
@@ -214,5 +232,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   if (!Number.isSafeInteger(port) || port < 1 || port > 65535 || !host || !process.env.REACT_APP_BACKEND_URL) {
     throw new Error('HOST, PORT (1-65535), and REACT_APP_BACKEND_URL are required');
   }
-  createFrontendServer({ backend: process.env.REACT_APP_BACKEND_URL }).listen(port, host);
+  const ownerConfig = loadOwnerConfig(process.env.WATCHDAWG_OWNER_CONFIG_FILE);
+  const keyFile = process.env.FRONTEND_TLS_KEY_FILE;
+  const certFile = process.env.FRONTEND_TLS_CERT_FILE;
+  if (!!keyFile !== !!certFile) throw new Error('Both frontend TLS certificate and key are required');
+  const tls = keyFile ? { key: readPrivateFile(keyFile), cert: readPrivateFile(certFile, 64 * 1024) } : undefined;
+  if (ownerConfig && !tls && !['127.0.0.1', '::1'].includes(host)) {
+    throw new Error('Owner HTTP ingress must bind to loopback behind its configured TLS proxy');
+  }
+  if (ownerConfig && !tls && !ownerConfig.trustedProxyAddresses.length) {
+    throw new Error('Owner sign-in requires frontend TLS or an explicitly trusted loopback TLS proxy');
+  }
+  createFrontendServer({ backend: process.env.REACT_APP_BACKEND_URL, ownerConfig, tls }).listen(port, host);
 }
