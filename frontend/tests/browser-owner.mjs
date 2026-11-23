@@ -12,6 +12,7 @@ import { runWatchDawg, sampleScenarios } from '../../watchdawg.js';
 
 const password = 'Synthetic-owner-browser-passphrase-only';
 const token = 'synthetic_browser_backend_token_only_000000000000';
+const ownerId = 'owner-browser-fixture-'.padEnd(64, 'x');
 const directory = await mkdtemp(join(tmpdir(), 'watchdawg-owner-browser-'));
 const output = new URL('../test-results/', import.meta.url);
 await mkdir(output, { recursive: true });
@@ -64,16 +65,16 @@ async function fixture(enabled) {
   const origin = `https://127.0.0.1:${port}`;
   await listen(createFrontendServer({ backend: `http://127.0.0.1:${backendPort}`, tls,
     ownerClock: () => Date.now() + offset,
-    ownerConfig: enabled ? { ownerId: 'owner-test', passwordHash, backendToken: token,
+    ownerConfig: enabled ? { ownerId, passwordHash, backendToken: token,
       publicOrigin: origin, trustedProxyAddresses: [] } : undefined }), port);
   return { origin, captured, held, mode(value) { mode = value; },
     advance(value) { offset += value; }, closed: () => closed };
 }
 async function signIn(page) {
-  await page.locator('#ownerUsername').fill('owner-test');
+  await page.locator('#ownerUsername').fill(ownerId);
   await page.locator('#ownerPassword').fill(password);
   await page.locator('#ownerSubmit').click();
-  await page.waitForFunction(() => document.querySelector('#ownerStatus').textContent.startsWith('Signed in as owner-test'));
+  await page.waitForFunction(value => document.querySelector('#ownerStatus').textContent.startsWith(`Signed in as ${value}`), ownerId);
   assert.equal(await page.locator('#ownerPassword').inputValue(), '');
 }
 async function waitStatus(page, text) {
@@ -184,7 +185,12 @@ try {
     assert.ok(control.x >= 0 && control.x + control.width <= mobileLayout.viewportWidth);
     assert.ok(control.width > 0 && control.height > 0);
   }
-  results.push('Owner form remains usable at a 390-pixel mobile viewport');
+  await signIn(page);
+  await page.locator('[data-testid="ai-insights-panel"]').screenshot({ path: new URL('owner-signed-in-mobile.png', output).pathname });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  await page.locator('#ownerLogout').click();
+  await waitStatus(page, 'Owner signed out');
+  results.push('Owner form and a maximum-length owner ID support sign-in and logout at a 390-pixel mobile viewport');
   await context.close();
   await writeFile(new URL('owner-browser-results.json', output), JSON.stringify({
     browser: browser.version(), assertions: results, syntheticOnly: true,
