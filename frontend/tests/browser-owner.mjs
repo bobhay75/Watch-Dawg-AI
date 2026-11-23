@@ -170,7 +170,20 @@ try {
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator('[data-testid="ai-insights-panel"]').screenshot({ path: new URL('owner-login-mobile.png', output).pathname });
-  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  const mobileLayout = await page.evaluate(() => ({
+    viewportWidth: innerWidth,
+    documentWidth: document.documentElement.scrollWidth,
+    controls: ['ownerUsername', 'ownerPassword', 'ownerSubmit'].map(id => {
+      const { x, width, height } = document.getElementById(id).getBoundingClientRect();
+      return { id, x, width, height };
+    })
+  }));
+  await writeFile(new URL('owner-mobile-layout.json', output), JSON.stringify(mobileLayout, null, 2) + '\n');
+  assert.ok(mobileLayout.documentWidth <= mobileLayout.viewportWidth + 1);
+  for (const control of mobileLayout.controls) {
+    assert.ok(control.x >= 0 && control.x + control.width <= mobileLayout.viewportWidth);
+    assert.ok(control.width > 0 && control.height > 0);
+  }
   results.push('Owner form remains usable at a 390-pixel mobile viewport');
   await context.close();
   await writeFile(new URL('owner-browser-results.json', output), JSON.stringify({
