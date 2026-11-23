@@ -43,3 +43,33 @@ This record is a development integration review. A green image gate means the
 configured blocking policy passed; it does not imply zero vulnerabilities,
 external certification, validated production capacity, or completed operator
 identity integration.
+
+## Disposable database build deadline
+
+The main-branch validation run
+[45144984111](https://github.com/bobhay75/Watch-Dawg-AI/actions/runs/45144984111)
+stopped while building the disposable MongoDB image: the cold image pull and
+signed distribution updates exceeded the generic 120-second command limit.
+This happened before the TLS/failover/restore assertions ran.
+
+Both disposable runners now use a shared image-build helper with a bounded
+600-second setup deadline and streamed Docker build output. Ordinary Docker
+commands retain their 120-second limits, readiness polling keeps its existing
+deadlines, and the operations workflow retains its 20-minute overall limit.
+The pinned base image, package-signature checks, minimum patched versions, image
+scans, private transport checks and recovery assertions remain enforced. Setup
+timeouts and nonzero build exits still stop validation; the whole build is not
+retried and there is no fallback image.
+
+The first hosted run with streamed setup logs completed the recovery suite, but
+the parallel backend job exposed another setup bottleneck: Ubuntu's HTTP
+indexes, including unused universe and backports, took over six minutes to
+download. The Dockerfile now requests only signed Ubuntu main, updates and
+security indexes over HTTPS. Network requests have a 30-second timeout and at
+most two transport retries within the unchanged 600-second overall build limit.
+The MongoDB repository remains excluded and its server version stays pinned.
+
+Offline regressions cover the original cold-build timing case, successful
+execution of the pinned build command, termination of a stalled process, and
+propagation of a nonzero build result. Hosted CI must also complete the full
+real-database and recovery drills before this change is integrated.

@@ -21,7 +21,11 @@ import urllib.request
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
-MONGO_IMAGE = "watchdawg-mongo:operations"
+sys.path.insert(0, str(ROOT))
+from scripts.disposable_images import (  # noqa: E402
+    MONGO_IMAGE,
+    build_mongo_image,
+)
 
 
 def docker(*args):
@@ -42,15 +46,7 @@ def main():
     )
     parser.add_argument("--all-python", action="store_true")
     args = parser.parse_args()
-    # Build only the pinned, non-root disposable variant; never pull a URI.
-    docker(
-        "build",
-        "-f",
-        str(ROOT / "deployment/secure/Mongo.Dockerfile"),
-        "-t",
-        MONGO_IMAGE,
-        str(ROOT),
-    )
+    build_mongo_image()
     suffix = uuid.uuid4().hex[:12]
     network = "watchdawg-test-" + suffix
     mongo = network + "-mongo"
