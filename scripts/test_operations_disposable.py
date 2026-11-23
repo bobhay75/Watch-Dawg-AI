@@ -103,8 +103,6 @@ def main():
     args = parser.parse_args()
     docker(
         "build",
-        "--network",
-        "none",
         "-f",
         str(ROOT / "deployment/secure/Mongo.Dockerfile"),
         "-t",

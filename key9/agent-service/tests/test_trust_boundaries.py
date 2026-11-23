@@ -7,9 +7,11 @@ from pathlib import Path
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 from key9_core.broker import CredentialBroker, SandboxSecretProvider
 from key9_core.config import session_service_uri
+from key9_core import workflow
 
 
 KEY9_ROOT = Path(__file__).resolve().parents[2]
@@ -42,6 +44,12 @@ def authorized_lease(broker: CredentialBroker) -> str:
 
 
 class TrustBoundaryTests(unittest.TestCase):
+    def test_sandbox_mode_normalization_controls_secret_provider(self) -> None:
+        with patch.dict("os.environ", {"KEY9_SANDBOX": " TRUE "}):
+            with patch.object(workflow, "GoogleSecretManagerProvider") as live:
+                workflow._build_broker()
+            live.assert_not_called()
+
     def test_concurrent_replay_executes_exactly_once(self) -> None:
         provider = CountingProvider()
         broker = CredentialBroker(provider)

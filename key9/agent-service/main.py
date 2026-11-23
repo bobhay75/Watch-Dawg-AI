@@ -63,7 +63,7 @@ async def healthcheck() -> dict[str, object]:
         "service": "watch-dawg-key9-agent",
         "model": os.getenv("KEY9_MODEL", "gemini-3.5-flash"),
         "secret_values_visible_to_model": 0,
-        "sandbox": os.getenv("KEY9_SANDBOX", "true").lower() == "true",
+        "sandbox": sandbox_enabled(),
     }
 
 
