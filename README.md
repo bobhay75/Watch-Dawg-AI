@@ -158,7 +158,7 @@ Install backend dependencies:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r backend/requirements.txt
+pip install --require-hashes -r backend/requirements.txt
 ```
 
 Set backend variables:
@@ -166,7 +166,9 @@ Set backend variables:
 ```bash
 export MONGO_URL='YOUR_MONGODB_URL'
 export DB_NAME='watchdawg'
-export EMERGENT_LLM_KEY='YOUR_KEY'
+# Real provider access stays disabled until explicitly configured.
+export LLM_PROVIDER='disabled'
+# See docs/LEGACY-BACKEND-REMEDIATION.md for provider migration and safe tests.
 ```
 
 Set frontend variables:
@@ -179,11 +181,15 @@ export REACT_APP_BACKEND_URL='http://localhost:8001'
 
 Never commit `.env` files, API keys, credentials, or service-account secrets.
 
-Start the backend:
+The backend now requires a private service-token policy and scoped credentials,
+including for health checks. See [backend security configuration](docs/BACKEND-SECURITY.md)
+to bootstrap private credentials, configure approved networks/CORS/TLS, and deliver
+tokens to authorized clients. There is no authentication-off production mode.
+
+Start the backend after configuring `BACKEND_SECURITY_FILE` and approved transport:
 
 ```bash
-cd backend
-uvicorn server:app --host 0.0.0.0 --port 8001
+uvicorn backend.server:app --host 127.0.0.1 --port 8001 --no-proxy-headers --no-access-log
 ```
 
 Start the frontend in another terminal from the repository root:
@@ -206,7 +212,7 @@ Open `http://localhost:3000`.
 
 ## Deployment model
 
-The full Watch-Dawg AI application requires a runtime that can run the Node frontend proxy and FastAPI backend, plus MongoDB and the required environment variables. The Emergent-hosted runtime is the original full-stack MVP path.
+The full Watch-Dawg AI application requires a runtime that can run the Node frontend proxy and FastAPI backend, plus MongoDB and the required environment variables. The original MVP used a vendor-hosted SDK. The remediated backend uses an explicit provider boundary and PyMongo async driver; see [backend migration notes](docs/LEGACY-BACKEND-REMEDIATION.md).
 
 GitHub Pages intentionally publishes **only** the deterministic browser demo (`index.html` and `watchdawg.js`). Backend code, tests, deployment helpers, and security internals are not included in the Pages artifact.
 
@@ -231,3 +237,9 @@ Watch-Dawg is strongest when presented as one system with two defensible layers:
 2. **Agent trust boundary:** let AI systems perform authorized work without handing them unrestricted secrets or silent authority.
 
 That combination turns Watch-Dawg from a single-purpose demo into a broader **trust and control layer for AI-assisted small-business operations**.
+
+Backend operational security and synthetic disaster-recovery templates: [private operations runbook](docs/SECURE-OPERATIONS-RUNBOOK.md). These templates do not deploy services or authorize intelligence publication.
+
+Validation results and remaining deployment blockers: [secure operations validation](docs/SECURE-OPERATIONS-VALIDATION.md).
+
+Current PR #31 security review, image findings and integration gates: [PR31-OPERATIONS-REVIEW.md](docs/PR31-OPERATIONS-REVIEW.md).

@@ -1,29 +1,55 @@
+"""Private audit API with explicit providers and async MongoDB lifecycle."""
+
+import asyncio
 import json
 import os
 import uuid
 from collections.abc import AsyncIterator, Mapping
+from contextlib import aclosing, asynccontextmanager
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Final
+from urllib.parse import parse_qsl, urlsplit
 
-from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from motor.motor_asyncio import AsyncIOMotorClient
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
+from pymongo import AsyncMongoClient
 
-from emergentintegrations.llm.chat import (  # type: ignore[import-untyped]
-    LlmChat,
-    StreamDone,
-    TextDelta,
-    UserMessage,
-)
+if __package__:
+    from .audit import AuditJournal
+    from .security import (
+        Policy,
+        Security,
+        MongoSecurityStore,
+        SecurityMiddleware,
+        Limited,
+        secret_value,
+        audit_outcome,
+    )
+    from .providers import (
+        CompatibleProvider,
+        DisabledProvider,
+        SyntheticProvider,
+    )
+else:
+    from audit import AuditJournal
+    from security import (
+        Policy,
+        Security,
+        MongoSecurityStore,
+        SecurityMiddleware,
+        Limited,
+        secret_value,
+        audit_outcome,
+    )
+    from providers import (
+        CompatibleProvider,
+        DisabledProvider,
+        SyntheticProvider,
+    )
 
-load_dotenv()
-
-MONGO_URL: str | None = os.environ.get("MONGO_URL")
-DB_NAME: str | None = os.environ.get("DB_NAME")
-EMERGENT_LLM_KEY: str | None = os.environ.get("EMERGENT_LLM_KEY")
 SYSTEM_MESSAGE: Final[str] = (
     "You are Watch-Dawg AI, a careful financial transaction audit assistant. "
     "Explain deterministic audit findings, recommend concrete next actions, "
@@ -35,58 +61,331 @@ SSE_HEADERS: Final[dict[str, str]] = {
     "X-Accel-Buffering": "no",
 }
 
-if not MONGO_URL or not DB_NAME:
-    raise RuntimeError("MONGO_URL and DB_NAME are required")
 
-app = FastAPI(title="Watch-Dawg AI API")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+class LimitRequestBody:
+    """Bound request memory before parsing JSON or writing evidence."""
 
-mongo = AsyncIOMotorClient(MONGO_URL)
-db = mongo[DB_NAME]
+    def __init__(self, app, limit=256 * 1024):
+        self.app = app
+        self.limit = limit
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        body = bytearray()
+        deadline = asyncio.get_running_loop().time() + 10
+        while True:
+            try:
+                remaining = max(
+                    0, deadline - asyncio.get_running_loop().time()
+                )
+                async with asyncio.timeout(remaining):
+                    message = await receive()
+            except TimeoutError:
+                return await JSONResponse(
+                    {"detail": "Request body timeout"},
+                    status_code=408,
+                )(scope, receive, send)
+            if message["type"] == "http.disconnect":
+                return
+            chunk = message.get("body", b"")
+            if len(body) + len(chunk) > self.limit:
+                response = JSONResponse(
+                    {"detail": "Request body too large"}, status_code=413
+                )
+                return await response(scope, receive, send)
+            body.extend(chunk)
+            if not message.get("more_body", False):
+                break
+        replayed = False
+
+        async def replay():
+            nonlocal replayed
+            if replayed:
+                return await receive()
+            replayed = True
+            return {
+                "type": "http.request",
+                "body": bytes(body),
+                "more_body": False,
+            }
+
+        await self.app(scope, replay, send)
+
+
+@dataclass(frozen=True)
+class Settings:
+    mongo_url: str = field(repr=False)
+    db_name: str
+    provider: str = "disabled"
+    test_mode: bool = False
+    base_url: str = ""
+    api_key: str = field(default="", repr=False)
+    model: str = ""
+    security_file: str = field(default="", repr=False)
+    audit_dir: str = field(default="", repr=False)
+    audit_segment_bytes: int = 1024 * 1024
+    audit_max_segments: int = 8
+    audit_retention_days: int = 7
+
+    def __post_init__(self):
+        options = dict(parse_qsl(urlsplit(self.mongo_url).query))
+        for key, value in options.items():
+            unsafe = (
+                key.casefold()
+                in {
+                    "tlsinsecure",
+                    "tlsallowinvalidcertificates",
+                    "tlsallowinvalidhostnames",
+                }
+                and value.casefold() != "false"
+            )
+            disabled = (
+                key.casefold() in {"tls", "ssl"}
+                and value.casefold() == "false"
+            )
+            if unsafe or disabled:
+                raise ValueError("MongoDB TLS bypass options are prohibited")
+
+    @classmethod
+    def from_env(cls):
+        return cls(
+            secret_value("MONGO_URL"),
+            os.getenv("DB_NAME", ""),
+            os.getenv("LLM_PROVIDER", "disabled"),
+            os.getenv("WATCHDAWG_TEST_MODE") == "true",
+            os.getenv("LLM_BASE_URL", ""),
+            secret_value("LLM_API_KEY"),
+            os.getenv("LLM_MODEL", ""),
+            os.getenv("BACKEND_SECURITY_FILE", ""),
+            os.getenv("BACKEND_AUDIT_DIR", ""),
+            int(os.getenv("BACKEND_AUDIT_SEGMENT_BYTES", str(1024 * 1024))),
+            int(os.getenv("BACKEND_AUDIT_MAX_SEGMENTS", "8")),
+            int(os.getenv("BACKEND_AUDIT_RETENTION_DAYS", "7")),
+        )
+
+
+class MongoStore:
+    def __init__(self, collection):
+        self.collection = collection
+
+    async def append(self, session_id, role, content):
+        await self.collection.insert_one(
+            {
+                "session_id": session_id,
+                "role": role,
+                "content": content,
+                "created_at": utc_now_iso(),
+            }
+        )
+
+
+def select_provider(settings):
+    if settings.provider == "disabled":
+        return DisabledProvider()
+    if settings.provider == "synthetic" and settings.test_mode:
+        return SyntheticProvider()
+    if settings.provider == "openai_compatible":
+        return CompatibleProvider(
+            settings.base_url, settings.api_key, settings.model
+        )
+    raise ValueError("Unsupported or unsafe provider configuration")
+
+
+def create_app(
+    settings=None, store=None, provider=None, policy=None, security_store=None
+):
+    @asynccontextmanager
+    async def runtime(application):
+        config = settings or Settings.from_env()
+        active_policy = policy or Policy.load(config.security_file)
+        active_provider = (
+            provider if provider is not None else select_provider(config)
+        )
+        if active_policy.transport == "test" and (
+            not config.test_mode
+            or not isinstance(active_provider, SyntheticProvider)
+        ):
+            raise ValueError("Test transport requires explicit synthetic mode")
+        if (
+            active_policy.transport == "test"
+            and store is None
+            and not config.db_name.startswith("watchdawg_test_")
+        ):
+            raise ValueError("Test transport requires a disposable database")
+        if not config.test_mode and application.state.audit_sink is None:
+            raise RuntimeError("BACKEND_AUDIT_DIR is required outside tests")
+        application.state.provider = active_provider
+        if store is not None:
+            if security_store is None:
+                raise ValueError("Injected storage requires a security store")
+            application.state.store = store
+            application.state.security = Security(
+                active_policy,
+                security_store,
+                config.security_file if policy is None else None,
+            )
+            yield
+            return
+        if not config.mongo_url or not config.db_name:
+            raise RuntimeError("MONGO_URL and DB_NAME are required")
+        client = AsyncMongoClient(
+            config.mongo_url,
+            serverSelectionTimeoutMS=3000,
+            connectTimeoutMS=3000,
+            timeoutMS=5000,
+        )
+        try:
+            try:
+                await client.admin.command("ping")
+                database = client[config.db_name]
+                shared_security = MongoSecurityStore(database)
+                await shared_security.initialize()
+                application.state.store = MongoStore(
+                    database.ai_audit_messages
+                )
+                application.state.security = Security(
+                    active_policy,
+                    shared_security,
+                    config.security_file if policy is None else None,
+                )
+            except Exception:
+                raise RuntimeError(
+                    "Backend database initialization failed"
+                ) from None
+            yield
+        finally:
+            await client.close()
+
+    @asynccontextmanager
+    async def lifespan(application):
+        config = settings or Settings.from_env()
+        sink = None
+        if config.audit_dir:
+            try:
+                sink = AuditJournal(
+                    config.audit_dir,
+                    config.audit_segment_bytes,
+                    config.audit_max_segments,
+                    config.audit_retention_days,
+                )
+            except Exception:
+                raise RuntimeError(
+                    "Durable audit initialization failed"
+                ) from None
+        application.state.audit_sink = sink
+        try:
+            async with runtime(application):
+                yield
+        finally:
+            if sink:
+                sink.close()
+
+    application = FastAPI(
+        title="Watch-Dawg AI API",
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
+    application.add_middleware(LimitRequestBody)
+    application.add_middleware(SecurityMiddleware)
+
+    @application.exception_handler(RequestValidationError)
+    async def validation_error(request, exc):
+        return JSONResponse({"detail": "Invalid request"}, status_code=422)
+
+    @application.get("/api/health")
+    async def health():
+        return {"status": "ok", "service": "watch-dawg-ai"}
+
+    @application.post("/api/ai/audit")
+    async def ai_audit(request: AIAnalyzeRequest, http_request: Request):
+        active_provider = application.state.provider
+        if not active_provider.ready:
+            raise HTTPException(
+                status_code=500, detail="AI key is not configured"
+            )
+        session_id = build_session_id()
+        prompt = build_audit_prompt(request)
+        active_store = application.state.store
+        security = http_request.state.security
+        try:
+            leases = await security.reserve(http_request.state.principal)
+        except Limited:
+            raise HTTPException(
+                status_code=429,
+                detail="Stream budget exceeded",
+                headers={"Retry-After": "120"},
+            ) from None
+        except Exception:
+            raise HTTPException(
+                status_code=503, detail="Security service unavailable"
+            ) from None
+        http_request.state.active_security_leases = leases
+        try:
+            await active_store.append(session_id, "user", prompt)
+        except asyncio.CancelledError:
+            await security.release(leases)
+            audit_outcome(
+                http_request.state.request_id,
+                "cancelled",
+                security.policy.ref(
+                    "principal:" + http_request.state.principal.name
+                ),
+                application.state.audit_sink,
+            )
+            raise
+        except Exception:
+            await security.release(leases)
+            raise HTTPException(
+                status_code=500, detail="Audit storage is unavailable"
+            ) from None
+
+        recorded = False
+
+        def record_result(outcome):
+            nonlocal recorded
+            recorded = True
+            audit_outcome(
+                http_request.state.request_id,
+                outcome,
+                security.policy.ref(
+                    "principal:" + http_request.state.principal.name
+                ),
+                application.state.audit_sink,
+            )
+
+        async def guarded_stream():
+            try:
+                async with aclosing(
+                    stream_ai_audit_events(
+                        active_provider,
+                        active_store,
+                        session_id,
+                        prompt,
+                        outcome=record_result,
+                    )
+                ) as stream:
+                    async for event in stream:
+                        yield event
+            finally:
+                try:
+                    if not recorded:
+                        record_result("cancelled")
+                finally:
+                    await security.release(leases)
+                    http_request.state.active_security_leases = []
+
+        return format_sse_response(guarded_stream())
+
+    return application
 
 
 class AIAnalyzeRequest(BaseModel):
     payload: Any = Field(...)
     deterministic_result: dict[str, Any] = Field(...)
     report: str = Field(..., max_length=12000)
-
-
-@app.get("/api/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok", "service": "watch-dawg-ai"}
-
-
-@app.post("/api/ai/audit")
-async def ai_audit(request: AIAnalyzeRequest) -> StreamingResponse:
-    api_key = validate_ai_configuration(EMERGENT_LLM_KEY)
-    validated_request = validate_ai_audit_request(request)
-    session_id = build_session_id()
-    prompt = build_audit_prompt(validated_request)
-
-    await persist_ai_message(
-        session_id=session_id,
-        role="user",
-        content=prompt,
-    )
-    return format_sse_response(
-        stream_ai_audit_events(api_key, session_id, prompt)
-    )
-
-
-def validate_ai_configuration(api_key: str | None) -> str:
-    if not api_key:
-        raise HTTPException(status_code=500, detail="AI key is not configured")
-    return api_key
-
-
-def validate_ai_audit_request(request: AIAnalyzeRequest) -> AIAnalyzeRequest:
-    return request
 
 
 def build_session_id() -> str:
@@ -128,58 +427,44 @@ def build_audit_message(
     )
 
 
-def build_chat_client(api_key: str, session_id: str) -> LlmChat:
-    chat = LlmChat(
-        api_key=api_key,
-        session_id=session_id,
-        system_message=SYSTEM_MESSAGE,
-    )
-    return chat.with_model(
-        "openai", "gpt-5.4-mini"
-    )
-
-
 async def stream_ai_audit_events(
-    api_key: str,
-    session_id: str,
-    prompt: str,
+    provider, store, session_id, prompt, outcome=None
 ) -> AsyncIterator[str]:
-    collected: list[str] = []
+    collected = []
+    length = 0
     try:
-        chat = build_chat_client(api_key, session_id)
-        async for event in chat.stream_message(UserMessage(text=prompt)):
-            if isinstance(event, TextDelta):
-                collected.append(event.content)
-                yield format_sse_event({"delta": event.content})
-            elif isinstance(event, StreamDone):
-                break
-
-        await persist_ai_message(
-            session_id=session_id,
-            role="assistant",
-            content="".join(collected),
-        )
+        async with asyncio.timeout(90), aclosing(
+            provider.stream(prompt, session_id, SYSTEM_MESSAGE)
+        ) as deltas:
+            async for delta in deltas:
+                if not isinstance(delta, str):
+                    raise ValueError("Malformed provider content")
+                length += len(delta)
+                if length > 1000000:
+                    raise ValueError("Provider output exceeds limit")
+                collected.append(delta)
+                yield format_sse_event({"delta": delta})
+        await store.append(session_id, "assistant", "".join(collected))
+        if outcome:
+            outcome("completed")
         yield format_sse_event({"done": True, "session_id": session_id})
-    except Exception as exc:
+    except Exception:
+        if outcome:
+            outcome("failed")
+        # Never retain exception text/types: providers may embed
+        # keys, URLs or prompts.
         yield format_sse_event(
             {"error": "AI analysis failed. Please run the audit again."}
         )
-        await persist_ai_message(
-            session_id=session_id,
-            role="system",
-            content=f"AI stream error: {type(exc).__name__}: {exc}",
-        )
-
-
-async def persist_ai_message(session_id: str, role: str, content: str) -> None:
-    await db.ai_audit_messages.insert_one(
-        {
-            "session_id": session_id,
-            "role": role,
-            "content": content,
-            "created_at": utc_now_iso(),
-        }
-    )
+        try:
+            await store.append(
+                session_id,
+                "system",
+                "AI stream error: provider_or_storage_failure",
+            )
+        except Exception:
+            # Never emit done if the failure record cannot be stored.
+            pass
 
 
 def format_sse_event(payload: Mapping[str, Any]) -> str:
@@ -196,3 +481,6 @@ def format_sse_response(events: AsyncIterator[str]) -> StreamingResponse:
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+app = create_app()

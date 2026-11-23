@@ -289,5 +289,19 @@ class SupplyChainVerificationTests(unittest.TestCase):
             self.assertIn("PYTHON_DEPENDENCY_NOT_PINNED", codes)
             self.assertEqual(report["status"], "FAIL")
 
+    def test_hashed_continuations_are_validated_and_dev_locks_checked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            digest = 'a' * 64
+            (root / 'requirements.txt').write_text(
+                'httpx==0.28.1 \\\n    --hash=sha256:' + digest + '\n')
+            self.assertEqual(inspect_root(root)['summary']['errors'], 0)
+            (root / 'requirements-dev.txt').write_text('pytest>=9\n')
+            self.assertGreater(inspect_root(root)['summary']['errors'], 0)
+            (root / 'requirements-dev.txt').write_text(
+                'pytest==9.2.0 \\\n    --hash=sha256:invalid\n')
+            self.assertGreater(inspect_root(root)['summary']['errors'], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

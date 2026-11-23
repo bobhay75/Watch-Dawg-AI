@@ -8,7 +8,6 @@ the agent or policy interface.
 from __future__ import annotations
 
 from decimal import Decimal
-import os
 from collections.abc import Callable
 from typing import Any
 
@@ -18,6 +17,7 @@ from .broker import (
     GoogleSecretManagerProvider,
     SandboxSecretProvider,
 )
+from .config import sandbox_enabled
 
 
 DEMO_JOB = {
@@ -38,7 +38,7 @@ DEMO_RECEIPTS = [
 
 
 def _build_broker() -> CredentialBroker:
-    sandbox = os.getenv("KEY9_SANDBOX", "true").lower() == "true"
+    sandbox = sandbox_enabled()
     provider = SandboxSecretProvider() if sandbox else GoogleSecretManagerProvider()
     return CredentialBroker(provider)
 
@@ -54,7 +54,7 @@ def _attach_receipt(
     scopes: list[str],
     phase: str,
 ) -> dict[str, Any]:
-    sandbox = os.getenv("KEY9_SANDBOX", "true").lower() == "true"
+    sandbox = sandbox_enabled()
     reported_effect = result.get("external_write_performed")
     external_write = reported_effect if isinstance(reported_effect, bool) else None
     return {

@@ -1,0 +1,8 @@
+[Unit]
+Description=Daily WatchDawg synthetic restore validation
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=30m
+Persistent=true
+[Install]
+WantedBy=timers.target

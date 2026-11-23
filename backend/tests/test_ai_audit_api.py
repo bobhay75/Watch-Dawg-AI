@@ -3,19 +3,14 @@
 import json
 import os
 from datetime import datetime, timezone
-from pathlib import Path
+from urllib.parse import urlsplit
 from typing import Any
 
 import pytest
 import requests
-from dotenv import load_dotenv
 from pymongo import MongoClient
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
 DONE_EVENT_VALUE = True
-
-load_dotenv(ROOT_DIR / "backend" / ".env")
-load_dotenv(ROOT_DIR / "frontend" / ".env")
 
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL")
 MONGO_URL = os.environ.get("MONGO_URL")
@@ -26,7 +21,19 @@ SseEvent = dict[str, Any]
 @pytest.fixture(scope="session")
 def api_base_url() -> str:
     if not BASE_URL:
-        pytest.skip("REACT_APP_BACKEND_URL is not set")
+        if os.getenv("WATCHDAWG_REQUIRE_INTEGRATION") == "true":
+            pytest.fail("Disposable integration service is required")
+        pytest.skip("Disposable integration service is not configured")
+    if os.getenv("WATCHDAWG_TEST_MODE") != "true" or urlsplit(
+        BASE_URL
+    ).hostname not in {"127.0.0.1", "localhost"}:
+        pytest.fail(
+            "Integration tests require explicit loopback synthetic mode"
+        )
+    if DB_NAME != "watchdawg_test_" + os.getenv(
+        "WATCHDAWG_DISPOSABLE_RUN", ""
+    ):
+        pytest.fail("Use the disposable runner, not an existing database")
     return BASE_URL.rstrip("/")
 
 
@@ -34,6 +41,16 @@ def api_base_url() -> str:
 def mongo_collection() -> Any:
     if not MONGO_URL or not DB_NAME:
         pytest.skip("MONGO_URL or DB_NAME is not set")
+    if (
+        os.getenv("WATCHDAWG_TEST_MODE") != "true"
+        or urlsplit(MONGO_URL).hostname not in {"127.0.0.1", "localhost"}
+        or not DB_NAME.startswith("watchdawg_test_")
+    ):
+        pytest.fail("Only disposable loopback test databases are allowed")
+    if DB_NAME != "watchdawg_test_" + os.getenv(
+        "WATCHDAWG_DISPOSABLE_RUN", ""
+    ):
+        pytest.fail("Use the disposable runner, not an existing database")
     client: MongoClient[dict[str, Any]] = MongoClient(MONGO_URL)
     collection = client[DB_NAME]["ai_audit_messages"]
     yield collection
@@ -93,6 +110,9 @@ def post_ai_audit(
     return requests.post(
         f"{api_base_url}/api/ai/audit",
         json=payload,
+        headers={
+            "Authorization": "Bearer " + os.environ["WATCHDAWG_TEST_TOKEN"]
+        },
         stream=True,
         timeout=120,
     )
@@ -139,7 +159,13 @@ def docs_with_role(
 
 
 def test_health_ok(api_base_url: str) -> None:
-    response = requests.get(f"{api_base_url}/api/health", timeout=15)
+    response = requests.get(
+        f"{api_base_url}/api/health",
+        timeout=15,
+        headers={
+            "Authorization": "Bearer " + os.environ["WATCHDAWG_TEST_TOKEN"]
+        },
+    )
 
     assert response.status_code == 200
     data = response.json()
