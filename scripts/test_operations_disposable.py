@@ -32,8 +32,10 @@ from operations.tokens import (  # noqa: E402
 )  # noqa: E402
 from operations.mongo_roles import roles  # noqa: E402
 from backend.audit import validate  # noqa: E402
-
-MONGO = "watchdawg-mongo:operations"
+from scripts.disposable_images import (  # noqa: E402
+    MONGO_IMAGE as MONGO,
+    build_mongo_image,
+)
 
 
 def command(*args, data=None):
@@ -101,14 +103,7 @@ def main():
     parser.add_argument("--backend-image", required=True)
     parser.add_argument("--proxy-image", required=True)
     args = parser.parse_args()
-    docker(
-        "build",
-        "-f",
-        str(ROOT / "deployment/secure/Mongo.Dockerfile"),
-        "-t",
-        MONGO,
-        str(ROOT),
-    )
+    build_mongo_image()
     suffix = uuid.uuid4().hex[:12]
     prefix = "wdops-" + suffix
     data_net, api_net = prefix + "-data", prefix + "-api"
