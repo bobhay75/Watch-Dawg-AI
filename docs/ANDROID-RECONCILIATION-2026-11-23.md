@@ -18,6 +18,8 @@ main. Their source branches and draft pull requests remain intact.
   tests. Include Python package inventory in the final Sentinel image scan.
 - Identify this combined app as version code 4, `0.3.0-survival-preview`, and
   retain APK metadata, SHA-256 and unit/lint reports from the same CI build.
+- Reuse the existing shield/check vector in a dark, adaptive launcher icon.
+  Correct the sensor README to disclose Survival OS's optional GPS permission.
 
 ## Validation and release boundary
 
@@ -36,3 +38,23 @@ system. A compatible local model is not bundled. Real phone installation,
 GPS reception, model inference speed, thermal behavior, battery behavior and
 owner workflow acceptance remain device checks. No cloud-provider credential
 or live private server is required for the build.
+
+## Target SDK review on November 23, 2026
+
+This sideloaded preview retains compile/target SDK 35 and minimum SDK 26.
+Google Play requires new ordinary phone apps and updates to target Android 16
+(API 36) or higher from August 31, 2026. Target 35 therefore does not qualify
+this APK for a new Play submission. The review UI is English-only.
+
+A target upgrade is a separate compatibility change. The present AGP 8.7.3
+toolchain predates Android's documented API 36 setup requirement. Target 36 also
+changes edge-to-edge handling, predictive back and large-screen behavior, all
+of which need runtime verification with these native activities and local
+model lifecycle. Changing only the target number would not establish that
+compatibility. No target/lint warning is suppressed and no store claim is made.
+
+Official sources checked for this decision:
+
+- [Current Play target requirements](https://developer.android.com/google/play/requirements/target-sdk)
+- [Android 16 SDK setup](https://developer.android.com/about/versions/16/setup-sdk)
+- [Android 16 target behavior changes](https://developer.android.com/about/versions/16/behavior-changes-16)

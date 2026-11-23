@@ -195,10 +195,12 @@ After installation:
    credential, then manually sync the oldest pending signed snapshot.
 7. Optionally enable periodic local collection. It does not auto-sync.
 
-Android's ordinary **App permissions** page may say no permissions are allowed.
-That is expected: Watch-Dawg deliberately requests no camera, microphone,
-location, contacts, messages, phone, or file permission, while Usage Access is
-managed separately under **Special app access**.
+The sensor requests no camera, microphone, contacts, messages, phone, or broad
+file permission. Usage Access is managed separately under **Special app access**.
+The optional Survival OS GPS button requests location permission only when the
+owner taps it. Denying location permission leaves sensor scans, guides and notes
+available. Notification permission is requested separately for visible Phone
+Guard status. The review UI is English-only.
 
 The Usage Access button opens Android's full Usage Access list without a
 package-scoped URI. The Android API defines this settings action as accepting
