@@ -27,3 +27,4 @@ local-data/
 .operations-drills/
 android-sensor/.gradle/
 android-sensor/local.properties
+frontend/test-results/

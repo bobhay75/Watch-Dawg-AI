@@ -1,0 +1,74 @@
+name: Verify owner browser session
+
+on:
+  pull_request:
+    paths:
+      - "frontend/**"
+      - "owner-client.js"
+      - "index.html"
+      - "package*.json"
+      - ".github/workflows/frontend-owner.yml"
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - "owner-client.js"
+      - "index.html"
+      - "package*.json"
+      - ".github/workflows/frontend-owner.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  owner-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - name: Install locked test tooling and audit dependencies
+        run: |
+          npm ci --ignore-scripts
+          npm audit --audit-level=high
+      - name: Use signed official Ubuntu archives with bounded network waits
+        run: |
+          sudo python3 - <<'PY'
+          from pathlib import Path
+          import re
+          for name in ('apt-mirrors.txt', 'apt-mirrors-security.txt'):
+              path = Path('/etc/apt') / name
+              if path.exists():
+                  path.write_text('https://archive.ubuntu.com/ubuntu/\n')
+          sources = [Path('/etc/apt/sources.list')]
+          sources += list(Path('/etc/apt/sources.list.d').glob('*.sources'))
+          sources += list(Path('/etc/apt/sources.list.d').glob('*.list'))
+          for path in sources:
+              if path.exists():
+                  content = path.read_text()
+                  content = re.sub(r'https?://(?:[a-z0-9.-]+\.)?archive\.ubuntu\.com/ubuntu/?',
+                                   'https://archive.ubuntu.com/ubuntu/', content)
+                  content = content.replace('http://security.ubuntu.com/ubuntu',
+                                            'https://archive.ubuntu.com/ubuntu')
+                  path.write_text(content)
+          Path('/etc/apt/apt.conf.d/99-watchdawg-ci-timeouts').write_text(
+              'Acquire::Retries "1";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n')
+          PY
+      - name: Install Chromium and its system libraries
+        timeout-minutes: 6
+        run: npx playwright install --with-deps chromium
+      - name: Exercise real HTTPS owner login, audit stream, logout and expiry
+        timeout-minutes: 2
+        run: npm run test:owner-browser
+      - name: Retain synthetic browser acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: owner-browser-acceptance
+          path: frontend/test-results/
+          retention-days: 14
+          if-no-files-found: warn
