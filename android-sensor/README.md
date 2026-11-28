@@ -162,18 +162,19 @@ The token is never logged or exported.
 Prerequisites:
 
 - JDK 17
-- Android SDK Platform 35 and Build Tools
-- Gradle 8.9 (the repository CI should pin the exact toolchain)
+- Android SDK Platform 36 and Build Tools 36.0.0
+- Gradle 8.13 and Android Gradle Plugin 8.13.2
 
 From this directory:
 
 ```sh
-gradle :app:testDebugUnitTest :app:assembleDebug
+gradle :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:bundleRelease
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-For production, use a protected release signing key and a reproducible CI
-build; do not distribute the debug APK. GitHub-hosted CI debug keys are
+The release build produces an unsigned bundle at
+`app/build/outputs/bundle/release/app-release.aab`. Store distribution requires
+the authorized upload key and Play Console review. GitHub-hosted CI debug keys are
 ephemeral, so artifacts from separate runs are first-install/throwaway builds,
 not an updateable channel. Installing a later artifact may require uninstalling
 the prior app, which erases its device identity and pending outbox and requires

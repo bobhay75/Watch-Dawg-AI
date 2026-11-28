@@ -37,9 +37,9 @@ LiteRT-LM is pinned to version 0.18.1; the model is not bundled in the APK. The 
 
 ## Build and install
 
-From android-sensor/ with JDK 17, Android SDK 35, Gradle 8.9, and network access for Gradle dependencies:
+From android-sensor/ with JDK 17, Android SDK 36, Build Tools 36.0.0, Gradle 8.13, and network access for Gradle dependencies:
 
-    gradle --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+    gradle --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:bundleRelease
 
 The review APK, when assembly succeeds, is android-sensor/app/build/outputs/apk/debug/app-debug.apk. Install only after review:
 

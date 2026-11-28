@@ -80,12 +80,12 @@ or live private server is required for the build.
 
 ## Target SDK review on November 23, 2026
 
-This sideloaded preview retains compile/target SDK 35 and minimum SDK 26.
+The 0.3.1 sideloaded preview retained compile/target SDK 35 and minimum SDK 26.
 Google Play requires new ordinary phone apps and updates to target Android 16
 (API 36) or higher from August 31, 2026. Target 35 therefore does not qualify
 this APK for a new Play submission. The review UI is English-only.
 
-A target upgrade is a separate compatibility change. The present AGP 8.7.3
+A target upgrade is a separate compatibility change. The 0.3.1 AGP 8.7.3
 toolchain predates Android's documented API 36 setup requirement. Target 36 also
 changes edge-to-edge handling, predictive back and large-screen behavior, all
 of which need runtime verification with these native activities and local

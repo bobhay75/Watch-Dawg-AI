@@ -2,10 +2,11 @@
 FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
-# Narrow signed-distribution update for the scanner-reported zlib advisory.
+# Narrow signed-distribution updates for scanner-reported runtime advisories.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends --only-upgrade zlib1g \
+    && apt-get install -y --no-install-recommends --only-upgrade zlib1g libzstd1 \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' zlib1g)" ge '1:1.3.dfsg+really1.3.1-1+deb13u1' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libzstd1)" ge '1.5.7+dfsg-1+deb13u1' \
     && rm -rf /var/lib/apt/lists/*
 COPY backend/requirements.txt /app/requirements.txt
 # Optional build-only CA bundle supports inspected networks without a TLS bypass.
