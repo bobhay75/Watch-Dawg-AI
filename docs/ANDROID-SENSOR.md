@@ -115,7 +115,12 @@ The `Build Watch-Dawg Android Sensor` GitHub Actions workflow runs those
 checks and retains the review APK as a short-lived workflow artifact. The
 unsigned release bundle is at
 `android-sensor/app/build/outputs/bundle/release/app-release.aab` after a local
-build. A store release requires the authorized upload key and Play Console
+build. CI also retains the unsigned AAB, release shrinker mapping, checked-out
+commit, and checksums in `watch-dawg-survival-0.3.2-unsigned-release` for 14 days.
+After extracting that artifact, run `sha256sum -c RELEASE_SHA256SUMS` from its
+root to verify all three files. `SOURCE_COMMIT` records the actual built commit,
+which is the test merge commit for a pull-request run.
+A store release requires the authorized upload key and Play Console
 review. A debug APK is suitable only for an authorized pilot. The
 hosted runner's debug signing key is ephemeral: treat each CI APK as a
 first-install or throwaway artifact, not an update channel. A later CI APK may

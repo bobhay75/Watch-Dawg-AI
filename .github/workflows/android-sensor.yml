@@ -48,6 +48,11 @@ jobs:
       - name: Record APK identity
         working-directory: android-sensor/app/build/outputs/apk/debug
         run: sha256sum app-debug.apk > SHA256SUMS
+      - name: Record unsigned release identity
+        working-directory: android-sensor/app/build/outputs
+        run: |
+          git rev-parse HEAD > SOURCE_COMMIT
+          sha256sum bundle/release/app-release.aab mapping/release/mapping.txt SOURCE_COMMIT > RELEASE_SHA256SUMS
       - name: Upload review APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -56,6 +61,17 @@ jobs:
             android-sensor/app/build/outputs/apk/debug/app-debug.apk
             android-sensor/app/build/outputs/apk/debug/output-metadata.json
             android-sensor/app/build/outputs/apk/debug/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload unsigned release bundle and shrinker mapping
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: watch-dawg-survival-0.3.2-unsigned-release
+          path: |
+            android-sensor/app/build/outputs/bundle/release/app-release.aab
+            android-sensor/app/build/outputs/mapping/release/mapping.txt
+            android-sensor/app/build/outputs/SOURCE_COMMIT
+            android-sensor/app/build/outputs/RELEASE_SHA256SUMS
           if-no-files-found: error
           retention-days: 14
       - name: Upload Android validation reports
