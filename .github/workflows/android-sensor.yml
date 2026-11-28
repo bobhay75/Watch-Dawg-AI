@@ -39,8 +39,6 @@ jobs:
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
         with:
           gradle-version: "8.13"
-      - name: Install Android SDK 36
-        run: sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0'
       - name: Test Android and build the debug APK and unsigned release bundle
         working-directory: android-sensor
         run: gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:bundleRelease
