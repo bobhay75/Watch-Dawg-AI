@@ -93,16 +93,16 @@ not exposed as a supported Android public-API boolean; it remains
 
 The project is in `android-sensor/` and currently uses:
 
-- Android API 35 for compile and target SDK;
+- Android API 36 for compile and target SDK;
 - Android 8.0/API 26 as the minimum supported version;
-- Java 17;
-- Gradle 8.9 and Android Gradle Plugin 8.7.3.
+- Java 17 and Android Build Tools 36.0.0;
+- Gradle 8.13 and Android Gradle Plugin 8.13.2.
 
-Install a JDK 17 and an Android SDK containing Platform 35, then run:
+Install a JDK 17 and an Android SDK containing Platform 36, then run:
 
 ```bash
 cd android-sensor
-gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug
+gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:bundleRelease
 ```
 
 The review APK is written to:
@@ -111,10 +111,12 @@ The review APK is written to:
 android-sensor/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-The `Build Watch-Dawg Android Sensor` GitHub Actions workflow runs the same
-unit test and debug build and retains the review APK as a short-lived workflow
-artifact. A debug APK is suitable only for an authorized pilot. It is not a
-release artifact and should not be represented as production signed. The
+The `Build Watch-Dawg Android Sensor` GitHub Actions workflow runs those
+checks and retains the review APK as a short-lived workflow artifact. The
+unsigned release bundle is at
+`android-sensor/app/build/outputs/bundle/release/app-release.aab` after a local
+build. A store release requires the authorized upload key and Play Console
+review. A debug APK is suitable only for an authorized pilot. The
 hosted runner's debug signing key is ephemeral: treat each CI APK as a
 first-install or throwaway artifact, not an update channel. A later CI APK may
 require uninstalling the earlier build, which erases its app-private signing
@@ -154,9 +156,10 @@ system Settings screen, and revoking it must leave the app operational with
 reduced coverage rather than fabricate results.
 
 The ordinary App Info **Permissions** page can therefore show no allowed
-permissions even when the app is working as designed. The sensor requests no
-camera, microphone, location, contacts, messages, phone, or file permission;
-Usage Access is controlled separately under **Special app access**.
+permissions even when the app is working as designed. Usage Access is controlled
+separately under **Special app access**. The sensor does not use location for
+collection. Survival OS requests location only when the user taps to get GPS
+coordinates.
 
 The app opens `ACTION_USAGE_ACCESS_SETTINGS` without a package URI because the
 Android API documents that action as taking no input. The separate App Info

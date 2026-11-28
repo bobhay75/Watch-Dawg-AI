@@ -99,6 +99,7 @@ class SurvivalActivity : Activity() {
 
     private fun buildUi(): ScrollView {
         val page = ScrollView(this).apply { setBackgroundColor(0xff101b1a.toInt()) }
+        ActivityInsets.applyTo(page, false)
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(14), dp(18), dp(28))

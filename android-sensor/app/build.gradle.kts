@@ -5,14 +5,15 @@ plugins {
 
 android {
     namespace = "com.bobsome1.watchdawg.sensor"
-    compileSdk = 35
+    compileSdk = 36
+    buildToolsVersion = "36.0.0"
 
     defaultConfig {
         applicationId = "com.bobsome1.watchdawg.sensor"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 5
-        versionName = "0.3.1-survival-preview"
+        targetSdk = 36
+        versionCode = 6
+        versionName = "0.3.2-survival-preview"
 
         testInstrumentationRunner = "android.app.InstrumentationTestRunner"
     }

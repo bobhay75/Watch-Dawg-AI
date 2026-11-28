@@ -257,6 +257,7 @@ public final class MainActivity extends Activity {
                 () -> SyncClient.sendLatest(getApplicationContext()))));
 
         ScrollView scroll = new ScrollView(this);
+        ActivityInsets.applyTo(scroll, true);
         scroll.setFillViewport(true);
         scroll.addView(content);
         return scroll;
